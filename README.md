@@ -1,142 +1,155 @@
 # Flint
 
-A behavioral session firewall for MCP-connected agents.
+Session firewall for MCP-connected agents.
 
-Flint detects dangerous multi-step behavior across an MCP session - even when each individual tool call looks valid in isolation. The unit of analysis is the **session**, not the request.
+Flint gives you k8s-level access control over which agents can use which tools, and detects dangerous multi-step behavior across a session — even when every individual call is authorized.
 
----
+## The problem
 
-## What it does
+MCP gateways can proxy traffic and apply per-request policies. What they can't do:
 
-Most MCP security tools inspect individual requests. Flint inspects behavioral chains. It tracks how data flows between tool calls and fires detection rules when it observes attack patterns like:
+- Stop an authorized agent from reading secrets via one tool and leaking them through another.
+- Detect pagination-based bulk extraction where each call looks routine.
+- Catch prompt injection attacks that chain valid tool calls into an exfiltration sequence.
 
-- Secret exfiltration (restricted token read → egress write)
-- Cross-scope data movement (restricted source → external destination)
-- Bulk data harvesting via pagination loops
-- Tool poisoning, privilege escalation, filesystem traversal (coming in v1 rule pack)
+These are session-level threats. Per-request inspection misses them by design.
 
----
+## What Flint does
+
+**Layer 1 - Granular access control.** Define who can do what, at which scope, down to specific tool arguments.
+
+```yaml
+roles:
+  - name: sql-readonly
+    rules:
+      - resources: ["db.execute_sql"]
+        verbs: ["discover", "read"]
+        constraints:
+          sql_intent: ["select"]
+
+bindings:
+  - agent: support-bot
+    roles: [sql-readonly, support-agent]
+    scopes: [support, customer_data]
+```
+
+Agents, roles, bindings, scopes, verbs, and constraints — the same primitives as Kubernetes RBAC. Default deny. If you don't grant it, it doesn't exist. Agents without `discover` permission on a tool don't even see it in `tools/list`.
+
+**Layer 2 - Session behavioral analysis.** Tracks data flow across tool calls within a session. Detects when authorized actions chain into an attack.
+
+```
+Event 1: agent reads support ticket        ← allowed
+Event 2: agent executes SQL, gets API keys ← allowed  
+Event 3: agent posts keys to public thread ← allowed
+
+Every call passed RBAC. Flint's behavior engine links the
+restricted SQL response to the egress request via token
+matching and terminates the session.
+```
+
+The behavior engine builds a causal graph per session — which data came from where, where it's going, and whether that movement pattern matches known attack signatures.
 
 ## How it works
 
-Every tool call and response is ingested as a `SessionEvent`. As events arrive:
+```
+Request
+  → Agent identity resolution
+  → Permission check (RBAC)
+  → Session tracker
+  → Fingerprint extractor
+  → Lineage builder
+  → Rule engine (sync fast-path + async broad rules)
+  → Allow / Block / Pause / Terminate
+```
 
-1. **Fingerprint Extractor** scans payloads for secrets (regex patterns) and hashes field values for non-secret data tracking.
-2. **Lineage Builder** indexes response data and, on each new request, checks whether any prior response data appears in it. Matches become causal edges (`exact_token_match`, `field_value_overlap`).
-3. **Rule Engine** evaluates detection rules against the current event and all accumulated edges.
-4. **Risk Scorer** accumulates a score and escalates the session disposition: `allow → warn → pause → terminate`.
+The same engine processes live gateway traffic and recorded trace files. The replay harness is the test suite, the dev loop, and the attack simulation tool.
 
----
-
-## Build and run
-
-**Requirements**: Go 1.21+
+## Quick start
 
 ```bash
-# Build
 go build -o flint-replay main.go
-
-# Run with embedded demo traces
 ./flint-replay
-
-# Run with an external trace file
-./flint-replay traces/my-session.json
 ```
 
-Exit code `1` if any session disposition is `terminate` or `pause`.
+Runs embedded traces: a Supabase-style exfiltration attack (terminated) and a benign code search (clean pass).
 
----
-
-## Demo traces
-
-Two traces are embedded in the binary:
-
-**`supabase_cursor_exfil`** — Attack scenario. An agent reads a support ticket containing an injected SQL instruction, executes the query to extract live API keys, then posts those keys to the support thread. Flint catches the token relay and terminates the session.
-
-**`benign_code_search`** — Normal workflow. Agent searches GitHub for a function and reads the file. No restricted data touched, no egress tools called. Session allowed.
-
----
-
-## Detection rules (v1)
-
-| Rule | Severity | Action | Description |
-|------|----------|--------|-------------|
-| `secret_relay` | critical | terminate | Known secret token from a restricted response relayed to an egress tool |
-| `restricted_read_external_write` | critical | pause | Any restricted response data (not just secrets) flowing to an external write |
-| `pagination_exfiltration` | high | warn | Same data-source tool called 3+ times with monotonically increasing pagination field |
-
----
-
-## Trace file format
-
-External traces are JSON files with this shape:
-
-```json
-{
-  "name": "my_trace",
-  "description": "What this session represents",
-  "session_id": "sess_001",
-  "events": [
-    {
-      "session_id": "sess_001",
-      "event_seq": 1,
-      "timestamp": "2024-01-15T14:00:00Z",
-      "direction": "request",
-      "method": "tools/call",
-      "tool_name": "db.execute_sql",
-      "payload": { "query": "SELECT * FROM users" }
-    },
-    {
-      "session_id": "sess_001",
-      "event_seq": 2,
-      "direction": "response",
-      "method": "tools/call",
-      "tool_name": "db.execute_sql",
-      "payload": { "rows": [...] }
-    }
-  ]
-}
+```bash
+./flint-replay traces/supabase_cursor.json
 ```
 
-`tool_tags`, `scope`, and `payload_class` are optional — the tool registry fills them in automatically for known tools.
+Run against a specific trace file.
 
----
+## Permission model
 
-## Tool registry
+Five concepts, same structure as Kubernetes RBAC:
 
-The registry maps tool names to metadata (tags, scope, payload class). Currently hardcoded in `main.go`. Built-in tools:
+| Concept | Purpose |
+|---------|---------|
+| **Agent** | Named identity (sales-copilot, support-bot) |
+| **Role** | Reusable permission bundle with rules |
+| **Binding** | Connects an agent to roles within scopes |
+| **Scope** | Isolation boundary (customer_data, code, billing) |
+| **Rule** | Resources + verbs + optional constraints |
 
-| Tool | Tags | Scope |
-|------|------|-------|
-| `crm.lookup_customer` | data_source, restricted | restricted |
-| `crm.get_integration_tokens` | data_source, restricted | restricted |
-| `db.execute_sql` | data_source, sql, restricted | restricted |
-| `slack.post_message` | external_write, network_egress | internal |
-| `github.search_code` | data_source | internal |
-| `support.read_ticket` | data_source, external_data | internal |
-| `support.post_reply` | external_write, network_egress | internal |
-| `fs.read_file` | data_source, filesystem | internal |
+Five verbs: `discover` (can see the tool), `read`, `write`, `execute` (side-effects like sending email), `admin`.
 
-Tools not in the registry are processed without enrichment — tags and scope must be present in the event itself.
+Roles compose. Agents get multiple role bindings. Scopes isolate. Constraints drill into tool arguments — restrict SQL to SELECT only, restrict filesystem to specific path prefixes, restrict Slack to specific channels.
 
----
+## Detection rules
 
-## Project status
+Flint ships with a rule pack covering known MCP attack patterns:
 
-**Week 1 (current):** Single-file monolith. Event schema, replay CLI, session tracker, fingerprint extractor, lineage builder, 3 rules, 2 embedded traces.
+| Rule | Detects |
+|------|---------|
+| secret_relay | Secret token from restricted response relayed to egress tool |
+| restricted_read_external_write | Restricted data flowing to external write path |
+| pagination_exfiltration | Repeated calls with monotonic paging parameters |
+| cross_scope_data_movement | Data from one scope used in another without policy |
+| tool_poisoning_indicator | Instruction-like content in tool metadata |
+| privilege_escalation_chain | Read result informing unexpected write operation |
+| filesystem_traversal_sequence | File operations escalating toward sensitive paths |
+| sql_mutation_after_read | Write/DDL following a read against same data source |
+| rapid_tool_switching | Abnormal oscillation between source and egress tools |
+| instruction_injection_echo | External content influencing later tool selection |
 
-**Week 2:** Lineage improvements, full sync/async rule evaluation split, risk scorer refinement, Supabase live trace replay.
+Rules are YAML-defined pattern matchers over ordered session events and data lineage edges. Not a general-purpose policy language. Not Turing-complete.
 
-**Week 3:** Benign trace suite, false-positive tuning, expanded rule pack.
+## Architecture
 
-**Week 4:** Gateway shell — inline MCP proxy for live traffic interception.
+```
+flint/
+  cmd/
+    replay/         # trace replay CLI
+    gateway/        # inline MCP proxy
+  engine/
+    session/        # session tracker + state
+    fingerprint/    # token extractor + field hasher
+    lineage/        # causal edge builder
+    rules/          # sequence rule evaluator
+    risk/           # cumulative risk scorer
+    authz/          # permission evaluator
+  pkg/
+    mcp/            # JSON-RPC types and parser
+    trace/          # trace file loader
+  rules/            # YAML detection rules
+  traces/           # JSON session fixtures
+  config/
+    roles.yaml      # role definitions
+    bindings.yaml   # agent-role-scope bindings
+    tools.yaml      # tool registry with tags and scopes
+```
 
----
+The engine is importable as a Go library. You can call `engine.ProcessEvent(evt)` from your own agent framework without deploying the gateway proxy.
 
-## Design principles
+## What Flint is not
 
-- The behavior engine is the product. The gateway is a delivery mechanism.
-- Replay harness and live gateway use the exact same engine code path.
-- False positives are worse than false negatives in v1. Be conservative.
-- No external dependencies. Go stdlib only.
-- Hot path latency budget: <20ms added per event.
+- Not a generic API gateway with MCP bolted on.
+- Not an agent orchestration framework.
+- Not an observability dashboard.
+- Not a privacy compliance platform (yet — planned for a later phase).
+
+## Roadmap
+
+**Now:** Replay harness, behavior engine, RBAC evaluator, detection rules.
+**Next:** Inline gateway shell with live traffic enforcement.
+**Later:** Response redaction, PII classification, PIA-aware tool governance, approval workflows, audit export, operator UI.
