@@ -1,7 +1,8 @@
-// Flint — session firewall for MCP-connected agents
-// Build: go build -o flint-replay main.go
-// Run:   ./flint-replay              (embedded traces)
-//        ./flint-replay trace.json   (external trace)
+//go:build ignore
+
+// This file is the original monolith, kept for reference.
+// The codebase has been refactored into packages.
+// Build: go build -o flint-replay ./cmd/replay
 package main
 
 import (

@@ -1,0 +1,45 @@
+tools:
+  - name: crm.lookup_customer
+    tags: [data_source, restricted]
+    scope: customer_data
+    payload_class: restricted
+
+  - name: crm.get_integration_tokens
+    tags: [data_source, restricted]
+    scope: customer_data
+    payload_class: restricted
+
+  - name: db.execute_sql
+    tags: [data_source, sql, restricted]
+    scope: database
+    payload_class: restricted
+
+  - name: slack.post_message
+    tags: [external_write, network_egress]
+    scope: internal
+    payload_class: communications
+
+  - name: github.search_code
+    tags: [data_source]
+    scope: internal
+    payload_class: code
+
+  - name: support.read_ticket
+    tags: [data_source, external_data]
+    scope: internal
+    payload_class: support
+
+  - name: support.post_reply
+    tags: [external_write, network_egress]
+    scope: internal
+    payload_class: support
+
+  - name: fs.read_file
+    tags: [data_source, filesystem]
+    scope: internal
+    payload_class: local
+
+  - name: whatsapp.read_messages
+    tags: [data_source, external_data]
+    scope: external
+    payload_class: communications

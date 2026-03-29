@@ -1,0 +1,57 @@
+{
+  "name": "benign_code_search",
+  "description": "Normal agent workflow: search code, read a file, no sensitive data movement.",
+  "session_id": "sess_benign_001",
+  "events": [
+    {
+      "session_id": "sess_benign_001",
+      "event_seq": 1,
+      "timestamp": "2024-01-15T15:00:00Z",
+      "direction": "request",
+      "method": "tools/call",
+      "tool_name": "github.search_code",
+      "request_id": "req_01",
+      "payload": { "query": "func handleRequest", "repo": "acme/api-server" }
+    },
+    {
+      "session_id": "sess_benign_001",
+      "event_seq": 2,
+      "timestamp": "2024-01-15T15:00:01Z",
+      "direction": "response",
+      "method": "tools/call",
+      "tool_name": "github.search_code",
+      "request_id": "req_01",
+      "payload": {
+        "results": [
+          {
+            "file": "handler.go",
+            "line": 42,
+            "snippet": "func handleRequest(w http.ResponseWriter, r *http.Request) {"
+          }
+        ]
+      }
+    },
+    {
+      "session_id": "sess_benign_001",
+      "event_seq": 3,
+      "timestamp": "2024-01-15T15:00:02Z",
+      "direction": "request",
+      "method": "tools/call",
+      "tool_name": "fs.read_file",
+      "request_id": "req_02",
+      "payload": { "path": "/repo/acme/api-server/handler.go" }
+    },
+    {
+      "session_id": "sess_benign_001",
+      "event_seq": 4,
+      "timestamp": "2024-01-15T15:00:03Z",
+      "direction": "response",
+      "method": "tools/call",
+      "tool_name": "fs.read_file",
+      "request_id": "req_02",
+      "payload": {
+        "content": "package main\n\nimport \"net/http\"\n\nfunc handleRequest(w http.ResponseWriter, r *http.Request) {\n\tw.WriteHeader(200)\n}"
+      }
+    }
+  ]
+}
