@@ -2,7 +2,7 @@
 
 A behavioral session firewall for MCP-connected agents.
 
-Flint detects dangerous multi-step behavior across an MCP session — even when each individual tool call looks valid in isolation. The unit of analysis is the **session**, not the request.
+Flint detects dangerous multi-step behavior across an MCP session - even when each individual tool call looks valid in isolation. The unit of analysis is the **session**, not the request.
 
 ---
 
