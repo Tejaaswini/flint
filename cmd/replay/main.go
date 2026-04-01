@@ -10,6 +10,7 @@ import (
 	"sort"
 
 	"flint/engine"
+	"flint/engine/authz"
 	"flint/engine/session"
 	"flint/pkg/trace"
 )
@@ -24,8 +25,19 @@ func loadRegistry() map[string]session.ToolMeta {
 	return registry
 }
 
+func loadPolicy() *authz.Policy {
+	policy, err := authz.LoadPolicy("config/roles.yaml", "config/bindings.yaml")
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "warning: could not load RBAC policy (%v), running in passthrough mode\n", err)
+		return nil
+	}
+	fmt.Fprintf(os.Stderr, "loaded RBAC policy: %d roles, %d bindings\n", len(policy.Roles), len(policy.Bindings))
+	return policy
+}
+
 func main() {
 	registry := loadRegistry()
+	policy := loadPolicy()
 
 	var traces []trace.TraceFile
 
@@ -53,7 +65,7 @@ func main() {
 
 	exitCode := 0
 	for _, t := range traces {
-		eng := engine.New(t.SessionID, registry)
+		eng := engine.New(t.SessionID, registry, policy)
 
 		sort.Slice(t.Events, func(i, j int) bool {
 			return t.Events[i].EventSeq < t.Events[j].EventSeq
@@ -75,6 +87,16 @@ func main() {
 
 func printReport(eng *engine.Engine, t trace.TraceFile) {
 	s := eng.Session
+
+	allowed, denied := 0, 0
+	for _, d := range s.PolicyDecisions {
+		if d.Allowed {
+			allowed++
+		} else {
+			denied++
+		}
+	}
+
 	fmt.Println()
 	fmt.Println("═══════════════════════════════════════════════════════════")
 	fmt.Printf("  FLINT SESSION REPORT: %s\n", t.Name)
@@ -86,6 +108,26 @@ func printReport(eng *engine.Engine, t trace.TraceFile) {
 	fmt.Printf("  Risk Score:  %.0f\n", s.RiskScore)
 	fmt.Printf("  Disposition: %s\n", s.Disposition)
 	fmt.Println("───────────────────────────────────────────────────────────")
+
+	if len(s.PolicyDecisions) > 0 {
+		fmt.Println("\n  RBAC DECISIONS")
+		fmt.Println("  ──────────────")
+		fmt.Printf("  allowed: %d   denied: %d\n\n", allowed, denied)
+		for _, d := range s.PolicyDecisions {
+			icon := "✓"
+			detail := fmt.Sprintf("role=%s verb=%s", d.MatchedRole, d.GrantedVerb)
+			if !d.Allowed {
+				icon = "✗"
+				detail = fmt.Sprintf("reason=%s", d.Reason)
+				if d.Constraint != "" {
+					detail += fmt.Sprintf(" constraint=%s", d.Constraint)
+				}
+			}
+			fmt.Printf("  %s  agent=%-14s  tool=%-28s  %s\n",
+				icon, d.AgentID, d.ToolName, detail)
+		}
+		fmt.Println()
+	}
 
 	fmt.Println("\n  EVENT TIMELINE")
 	fmt.Println("  ─────────────")

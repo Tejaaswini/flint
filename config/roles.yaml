@@ -1,0 +1,26 @@
+roles:
+  - name: sql-readonly
+    rules:
+      - resources: ["db.execute_sql"]
+        verbs: [invoke]
+        constraints:
+          sql_intent: [select, with]
+
+  - name: support-agent
+    rules:
+      - resources: ["support.read_ticket", "crm.lookup_customer"]
+        verbs: [invoke]
+      - resources: ["support.post_reply"]
+        verbs: [invoke]
+
+  - name: code-reader
+    rules:
+      - resources: ["github.search_code", "fs.read_file"]
+        verbs: [invoke]
+        constraints:
+          path_prefix: ["/workspace/", "/repo/"]
+
+  - name: crm-reader
+    rules:
+      - resources: ["crm.lookup_customer", "crm.get_integration_tokens"]
+        verbs: [invoke]

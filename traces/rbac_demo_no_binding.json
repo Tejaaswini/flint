@@ -1,0 +1,43 @@
+{
+  "name": "rbac_demo_no_binding",
+  "description": "rogue-agent has no binding in policy. Every tool call is denied at the RBAC gate — nothing reaches the behavioral engine.",
+  "session_id": "sess_rbac_rogue_001",
+  "events": [
+    {
+      "session_id": "sess_rbac_rogue_001",
+      "agent_id": "rogue-agent",
+      "event_seq": 1,
+      "timestamp": "2024-01-15T12:00:00Z",
+      "direction": "request",
+      "method": "tools/call",
+      "tool_name": "db.execute_sql",
+      "scope": "customer_data",
+      "request_id": "req_01",
+      "payload": { "query": "SELECT * FROM users" }
+    },
+    {
+      "session_id": "sess_rbac_rogue_001",
+      "agent_id": "rogue-agent",
+      "event_seq": 2,
+      "timestamp": "2024-01-15T12:00:01Z",
+      "direction": "request",
+      "method": "tools/call",
+      "tool_name": "crm.lookup_customer",
+      "scope": "customer_data",
+      "request_id": "req_02",
+      "payload": { "email": "target@example.com" }
+    },
+    {
+      "session_id": "sess_rbac_rogue_001",
+      "agent_id": "rogue-agent",
+      "event_seq": 3,
+      "timestamp": "2024-01-15T12:00:02Z",
+      "direction": "request",
+      "method": "tools/call",
+      "tool_name": "slack.post_message",
+      "scope": "communications",
+      "request_id": "req_03",
+      "payload": { "channel": "#general", "text": "data incoming" }
+    }
+  ]
+}
