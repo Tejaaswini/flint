@@ -1,0 +1,12 @@
+bindings:
+  - agent: support-bot
+    roles: [sql-readonly, support-agent]
+    scopes: [customer_data, support]
+
+  - agent: code-agent
+    roles: [code-reader]
+    scopes: [code, local]
+
+  - agent: crm-agent
+    roles: [crm-reader]
+    scopes: [customer_data]
