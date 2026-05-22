@@ -1,0 +1,12 @@
+bindings:
+  - agent: support-bot
+    roles: [demo-base, demo-guard]
+    scopes: ["*"]
+
+  - agent: code-agent
+    roles: [demo-base]
+    scopes: ["*"]
+
+  - agent: locked-down
+    roles: [demo-strict-allowlist]
+    scopes: ["*"]

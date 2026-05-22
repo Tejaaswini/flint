@@ -1,0 +1,47 @@
+tools:
+  # @modelcontextprotocol/server-everything exposed tools.
+  # Names are flat (no server prefix), so server: selectors don't apply here.
+  - name: echo
+    tags: [test]
+    scope: demo
+    payload_class: public
+
+  - name: add
+    tags: [test]
+    scope: demo
+    payload_class: public
+
+  - name: longRunningOperation
+    tags: [test]
+    scope: demo
+    payload_class: public
+
+  - name: printEnv
+    tags: [data_source, restricted]
+    scope: demo
+    payload_class: restricted
+
+  - name: sampleLLM
+    tags: [external_write, network_egress, expensive]
+    scope: demo
+    payload_class: public
+
+  - name: getTinyImage
+    tags: [data_source]
+    scope: demo
+    payload_class: public
+
+  - name: annotatedMessage
+    tags: [test]
+    scope: demo
+    payload_class: public
+
+  - name: getResourceReference
+    tags: [data_source]
+    scope: demo
+    payload_class: public
+
+  - name: structuredContent
+    tags: [test]
+    scope: demo
+    payload_class: public

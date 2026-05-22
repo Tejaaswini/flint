@@ -1,0 +1,9 @@
+{
+  "openai/gpt-4o": {"prompt_per_m": 2.50, "completion_per_m": 10.00},
+  "openai/gpt-4o-mini": {"prompt_per_m": 0.15, "completion_per_m": 0.60},
+  "anthropic/claude-sonnet-4.6": {"prompt_per_m": 3.00, "completion_per_m": 15.00},
+  "anthropic/claude-haiku-4.5": {"prompt_per_m": 1.00, "completion_per_m": 5.00},
+  "google/gemini-flash-latest": {"prompt_per_m": 1.50, "completion_per_m": 6.00},
+  "meta-llama/llama-3.2-3b-instruct": {"prompt_per_m": 0.051, "completion_per_m": 0.051},
+  "meta-llama/llama-3.2-3b-instruct:free": {"prompt_per_m": 0.0, "completion_per_m": 0.0}
+}

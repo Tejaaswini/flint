@@ -26,27 +26,62 @@ func Evaluate(policy *Policy, agentID string, evt *session.SessionEvent) session
 
 	// policy == nil: passthrough (dev mode)
 	if policy == nil {
-		return allow(base, session.ReasonNoPolicy, "", "", 0)
+		return allow(base, session.ReasonNoPolicy, "", "", 0, "")
 	}
 
 	// empty principal is always denied
 	if agentID == "" {
-		return deny(base, session.ReasonNoPrincipal, "", "", 0, nil)
+		return deny(base, session.ReasonNoPrincipal, "", "", 0, nil, "")
 	}
 
 	binding, ok := policy.Bindings[agentID]
 	if !ok {
-		return deny(base, session.ReasonNoBinding, "", "", 0, nil)
+		return deny(base, session.ReasonNoBinding, "", "", 0, nil, "")
 	}
 
 	// Scope check
 	evtScope := normalizeScope(evt.Scope)
 	evaluatedScopes := scopeList(binding.Scopes)
 	if !scopeAllowed(binding.Scopes, evtScope) {
-		return deny(base, session.ReasonScopeMismatch, "", "", 0, evaluatedScopes)
+		return deny(base, session.ReasonScopeMismatch, "", "", 0, evaluatedScopes, "")
 	}
 
-	// Evaluate all roles and rules — additive model
+	// -- Deny scan (runs before the allow loop) -------------------------------
+	// A deny rule fires when:
+	//   1. Its resources match the tool name (or "*").
+	//   2. If the rule has constraints, those constraints MATCH the event input
+	//      (i.e. the constraint is a positive match, not a rejection).
+	//
+	// Note on constraint semantics: evalConstraints returns denied=true when the
+	// constraint REJECTS the input. For deny rules we need the inverse — the deny
+	// fires only when the constraint MATCHES (e.g. sql_intent:[delete] blocks DELETE
+	// but not SELECT). We use matchesConstraints for this to avoid confusion.
+	for _, roleName := range binding.Roles {
+		role, exists := policy.Roles[roleName]
+		if !exists {
+			continue
+		}
+		for ruleIdx, rule := range role.Rules {
+			if rule.Effect != EffectDeny {
+				continue
+			}
+			if !rule.Resources[evt.ToolName] && !rule.Resources["*"] {
+				continue
+			}
+			// If the deny rule has constraints, fire only when the constraint
+			// positively matches the event input.
+			if len(rule.Constraints) > 0 {
+				if !matchesConstraints(rule.Constraints, evt) {
+					continue // constraint did not match — deny doesn't fire
+				}
+			}
+			// Deny fires.
+			d := deny(base, session.ReasonExplicitDeny, roleName, rule.MaxVerb, ruleIdx, evaluatedScopes, rule.Name)
+			return d
+		}
+	}
+
+	// -- Allow loop (unchanged behavior, skips deny rules) --------------------
 	resourceMatched := false
 	var best *candidate // best denial candidate so far
 
@@ -57,6 +92,11 @@ func Evaluate(policy *Policy, agentID string, evt *session.SessionEvent) session
 		}
 
 		for ruleIdx, rule := range role.Rules {
+			// Skip deny rules — they were handled in the deny scan above.
+			if rule.Effect == EffectDeny {
+				continue
+			}
+
 			if !rule.Resources[evt.ToolName] && !rule.Resources["*"] {
 				continue // not_applicable
 			}
@@ -88,23 +128,60 @@ func Evaluate(policy *Policy, agentID string, evt *session.SessionEvent) session
 			}
 
 			// All checks passed — allow
-			d := allow(base, session.ReasonAllowed, roleName, rule.MaxVerb, ruleIdx)
+			d := allow(base, session.ReasonAllowed, roleName, rule.MaxVerb, ruleIdx, rule.Name)
 			d.EvaluatedScopes = evaluatedScopes
 			return d
 		}
 	}
 
 	if !resourceMatched {
-		return deny(base, session.ReasonNoMatchingRule, "", "", 0, evaluatedScopes)
+		return deny(base, session.ReasonNoMatchingRule, "", "", 0, evaluatedScopes, "")
 	}
 
 	// Return the highest-precedence denial candidate
 	if best != nil {
-		d := deny(base, best.reason, best.matchedRole, best.grantedVerb, best.matchedRule, evaluatedScopes)
+		d := deny(base, best.reason, best.matchedRole, best.grantedVerb, best.matchedRule, evaluatedScopes, "")
 		d.Constraint = best.constraint
 		return d
 	}
-	return deny(base, session.ReasonNoMatchingRule, "", "", 0, evaluatedScopes)
+	return deny(base, session.ReasonNoMatchingRule, "", "", 0, evaluatedScopes, "")
+}
+
+// matchesConstraints returns true if the constraint values in the rule MATCH
+// the event input — i.e. the deny rule should fire for this input.
+//
+// This is the semantic inverse of evalConstraints.denied: evalConstraints
+// returns denied=true when the constraint REJECTS the input; matchesConstraints
+// returns true when the constraint MATCHES (so a deny rule with sql_intent:[delete]
+// fires on DELETE but not on SELECT).
+//
+// Fields missing from the payload: if the field is absent, we cannot confirm
+// the constraint matches, so we return false (deny does not fire). This is the
+// conservative choice — better to allow an unchecked call than to deny every
+// call that lacks a payload field.
+func matchesConstraints(constraints []Constraint, evt *session.SessionEvent) bool {
+	for _, c := range constraints {
+		aliases := fieldAliases[c.Type]
+		value, found := findField(evt.Payload, aliases)
+		if !found {
+			// Cannot confirm match without the field — deny does not fire.
+			return false
+		}
+
+		var matched bool
+		switch c.Type {
+		case "sql_intent":
+			matched = checkSQLIntent(value, c.Allowed)
+		case "path_prefix":
+			matched = checkPathPrefix(value, c.Allowed)
+		}
+
+		if !matched {
+			return false
+		}
+	}
+	// All constraints matched.
+	return true
 }
 
 // evalConstraints runs all constraints on a rule.
@@ -228,22 +305,24 @@ func updateCandidate(current, next *candidate) *candidate {
 
 // -- helpers ------------------------------------------------------------------
 
-func allow(base session.PolicyDecision, reason, matchedRole, grantedVerb string, matchedRule int) session.PolicyDecision {
+func allow(base session.PolicyDecision, reason, matchedRole, grantedVerb string, matchedRule int, ruleName string) session.PolicyDecision {
 	base.Allowed = true
 	base.Reason = reason
 	base.MatchedRole = matchedRole
 	base.GrantedVerb = grantedVerb
 	base.MatchedRule = matchedRule
+	base.MatchedRuleName = ruleName
 	base.RequiredVerb = session.VerbInvoke
 	return base
 }
 
-func deny(base session.PolicyDecision, reason, matchedRole, grantedVerb string, matchedRule int, evaluatedScopes []string) session.PolicyDecision {
+func deny(base session.PolicyDecision, reason, matchedRole, grantedVerb string, matchedRule int, evaluatedScopes []string, ruleName string) session.PolicyDecision {
 	base.Allowed = false
 	base.Reason = reason
 	base.MatchedRole = matchedRole
 	base.GrantedVerb = grantedVerb
 	base.MatchedRule = matchedRule
+	base.MatchedRuleName = ruleName
 	base.RequiredVerb = session.VerbInvoke
 	base.EvaluatedScopes = evaluatedScopes
 	return base

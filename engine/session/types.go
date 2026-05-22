@@ -1,6 +1,9 @@
 package session
 
-import "time"
+import (
+	"encoding/json"
+	"time"
+)
 
 // Verb constants for RBAC authorization.
 const (
@@ -37,6 +40,7 @@ type PolicyDecision struct {
 	Constraint      string // which constraint failed (constraint_violation / constraint_unverifiable only)
 	MatchedRole     string // role that produced the final decision
 	MatchedRule     int    // index of the rule within that role
+	MatchedRuleName string // optional human label on the rule; falls back to "<role>#<idx>" in audit serialization
 	EvaluatedScopes []string
 	Timestamp       time.Time
 }
@@ -52,12 +56,16 @@ const (
 	ReasonVerbInsufficient       = "verb_insufficient"
 	ReasonConstraintViolation    = "constraint_violation"
 	ReasonConstraintUnverifiable = "constraint_unverifiable"
+	ReasonExplicitDeny           = "explicit_deny"
 )
 
 // ReasonPrecedence returns the priority of a denial reason.
 // Higher value = higher priority = reported over lower-priority reasons.
+// explicit_deny (5) > constraint_unverifiable (4) > constraint_violation (3) > verb_insufficient (2) > no_matching_rule (1)
 func ReasonPrecedence(reason string) int {
 	switch reason {
+	case ReasonExplicitDeny:
+		return 5
 	case ReasonConstraintUnverifiable:
 		return 4
 	case ReasonConstraintViolation:
@@ -139,4 +147,11 @@ type ToolMeta struct {
 	Tags         []string
 	Scope        string
 	PayloadClass string
+}
+
+// Response is a placeholder for v1.5 response transformation.
+// The gateway can call Engine.TransformResponse on response paths
+// without source churn when the feature is fully implemented.
+type Response struct {
+	Raw json.RawMessage
 }
