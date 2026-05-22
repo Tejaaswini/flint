@@ -1,0 +1,33 @@
+roles:
+    # Base permissions for the demo agent.
+    - name: demo-base
+      rules:
+        - name: "Echo and math"
+          resources: [echo, add]
+          verbs: [invoke]
+        - name: "Long running operations"
+          resources: [longRunningOperation]
+          verbs: [invoke]
+        - name: "Read-only fixtures"
+          resources: [getTinyImage, annotatedMessage, getResourceReference, structuredContent]
+          verbs: [invoke]
+    # Hard denies — these override any allow rule above.
+    - name: demo-guard
+      rules:
+        - name: "Block environment disclosure"
+          effect: deny
+          resources: [printEnv]
+          verbs: [invoke]
+        - name: "Block expensive sampling"
+          effect: deny
+          resources: [sampleLLM]
+          verbs: [invoke]
+    - name: demo-strict-allowlist
+      rules:
+        - name: Only echo and add allowed
+          effect: allow
+          resources:
+            - echo
+            - add
+          verbs:
+            - invoke

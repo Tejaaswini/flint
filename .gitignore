@@ -1,0 +1,23 @@
+
+# Secrets — never commit
+.env.local
+.env
+ui/.env.local
+
+# Demo runtime artifacts
+flint-audit.jsonl
+router-audit.jsonl
+.demo-*.log
+bin/
+ui/node_modules/
+ui/dist/
+
+# Stray prebuilt binaries at repo root (use ./bin/ instead)
+/control
+/gateway
+/flint-gateway
+/flint-replay
+/main
+
+# OS
+.DS_Store

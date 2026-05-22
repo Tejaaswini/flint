@@ -33,11 +33,19 @@ type Constraint struct {
 	Mode    ConstraintMode
 }
 
+// EffectAllow and EffectDeny are the two valid rule effects.
+const (
+	EffectAllow = "allow"
+	EffectDeny  = "deny"
+)
+
 // Rule is a compiled rule within a role.
 type Rule struct {
 	Resources   map[string]bool
 	MaxVerb     string
 	Constraints []Constraint
+	Effect      string // "allow" | "deny"; default "allow"
+	Name        string // optional human label; may be empty string
 }
 
 // Role is a compiled collection of rules.
@@ -66,6 +74,8 @@ type yamlConstraint struct {
 }
 
 type yamlRule struct {
+	Name        string              `yaml:"name"`
+	Effect      string              `yaml:"effect"`
 	Resources   []string            `yaml:"resources"`
 	Verbs       []string            `yaml:"verbs"`
 	Constraints map[string][]string `yaml:"constraints"`
@@ -94,9 +104,12 @@ type yamlBindingsFile struct {
 // -- LoadPolicy ---------------------------------------------------------------
 
 // LoadPolicy reads roles and bindings YAML files and returns a compiled Policy.
+// The registry parameter is used to expand server selectors (e.g. "server:github").
+// Pass nil only in tests that do not use server selectors; production callers
+// always pass the gateway's loaded registry.
 // All validation errors are collected and returned together.
 // Structural failures (missing file, malformed YAML) return immediately.
-func LoadPolicy(rolesPath, bindingsPath string) (*Policy, error) {
+func LoadPolicy(rolesPath, bindingsPath string, registry map[string]session.ToolMeta) (*Policy, error) {
 	rolesData, err := os.ReadFile(rolesPath)
 	if err != nil {
 		return nil, fmt.Errorf("reading %s: %w", rolesPath, err)
@@ -115,12 +128,12 @@ func LoadPolicy(rolesPath, bindingsPath string) (*Policy, error) {
 		return nil, fmt.Errorf("parsing %s: %w", bindingsPath, err)
 	}
 
-	return compile(rf, bf)
+	return compile(rf, bf, registry)
 }
 
 // compile validates and compiles the parsed YAML into a Policy.
 // All validation errors are collected; the first structural error does not abort others.
-func compile(rf yamlRolesFile, bf yamlBindingsFile) (*Policy, error) {
+func compile(rf yamlRolesFile, bf yamlBindingsFile, registry map[string]session.ToolMeta) (*Policy, error) {
 	var errs []error
 
 	// -- Compile roles --------------------------------------------------------
@@ -138,7 +151,7 @@ func compile(rf yamlRolesFile, bf yamlBindingsFile) (*Policy, error) {
 		}
 		roleNames[yr.Name] = true
 
-		compiled, ruleErrs := compileRole(yr)
+		compiled, ruleErrs := compileRole(yr, registry)
 		errs = append(errs, ruleErrs...)
 		roles[yr.Name] = compiled
 	}
@@ -200,7 +213,7 @@ func compile(rf yamlRolesFile, bf yamlBindingsFile) (*Policy, error) {
 }
 
 // compileRole compiles a single yamlRole into a Role, collecting errors.
-func compileRole(role yamlRole) (Role, []error) {
+func compileRole(role yamlRole, registry map[string]session.ToolMeta) (Role, []error) {
 	var errs []error
 	rules := make([]Rule, 0, len(role.Rules))
 
@@ -220,22 +233,94 @@ func compileRole(role yamlRole) (Role, []error) {
 			continue
 		}
 
-		resources := make(map[string]bool, len(rule.Resources))
+		// Resolve resources (may include server selectors and wildcards).
+		resources := make(map[string]bool)
 		for _, r := range rule.Resources {
-			resources[r] = true
+			expanded, selErr := resolveSelector(r, registry)
+			if selErr != nil {
+				errs = append(errs, fmt.Errorf("role %q rule %d resource %q: %w", role.Name, i, r, selErr))
+				continue
+			}
+			for _, name := range expanded {
+				resources[name] = true
+			}
 		}
 
 		constraints, cErrs := compileConstraints(rule.Constraints, rule.Mode)
 		errs = append(errs, cErrs...)
 
+		// Parse effect; default to "allow" for backward compatibility.
+		effect := rule.Effect
+		if effect == "" {
+			effect = EffectAllow
+		}
+		if effect != EffectAllow && effect != EffectDeny {
+			errs = append(errs, fmt.Errorf("role %q rule %d: unknown effect %q (must be allow or deny)", role.Name, i, effect))
+			continue
+		}
+
 		rules = append(rules, Rule{
 			Resources:   resources,
 			MaxVerb:     maxVerb,
 			Constraints: constraints,
+			Effect:      effect,
+			Name:        rule.Name, // may be empty string — that is valid
 		})
 	}
 
 	return Role{Name: role.Name, Rules: rules}, errs
+}
+
+// resolveSelector expands a resource selector to the list of concrete tool names.
+//
+// Selector forms:
+//   - bare tool name (e.g. "github.search_code")   → returned as-is
+//   - "server:<name>"                               → all tools whose name starts with "<name>."
+//   - "server:*" or "*"                             → every tool in the registry
+//
+// If the registry is nil, bare names and wildcards are returned unchanged; but
+// server:<name> selectors (other than server:*) require the registry to validate
+// the prefix and will return a load-time error when the registry is nil.
+//
+// Returns a load-time error if the server:<name> prefix matches no tools in the
+// registry (unknown server).
+func resolveSelector(resource string, registry map[string]session.ToolMeta) ([]string, error) {
+	// Wildcard — all tools
+	if resource == "*" || resource == "server:*" {
+		if registry == nil {
+			// No registry: return the wildcard verbatim so the hot path's
+			// rule.Resources["*"] check still works.
+			return []string{"*"}, nil
+		}
+		out := make([]string, 0, len(registry))
+		for name := range registry {
+			out = append(out, name)
+		}
+		return out, nil
+	}
+
+	// Server-prefix selector
+	if strings.HasPrefix(resource, "server:") {
+		serverName := strings.TrimPrefix(resource, "server:")
+		if registry == nil {
+			// Cannot validate without registry; treat as load-time error.
+			return nil, fmt.Errorf("server selector %q requires a registry (registry is nil)", resource)
+		}
+		prefix := serverName + "."
+		var out []string
+		for name := range registry {
+			if strings.HasPrefix(name, prefix) {
+				out = append(out, name)
+			}
+		}
+		if len(out) == 0 {
+			return nil, fmt.Errorf("server selector %q matches no tools in registry (unknown server)", resource)
+		}
+		return out, nil
+	}
+
+	// Bare tool name — returned as-is regardless of registry.
+	return []string{resource}, nil
 }
 
 // compileConstraints validates and compiles the constraints map from a rule.

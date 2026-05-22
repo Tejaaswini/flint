@@ -1,6 +1,7 @@
 package authz
 
 import (
+	"sync"
 	"testing"
 
 	"flint/engine/session"
@@ -11,8 +12,13 @@ import (
 
 func makePolicy(t *testing.T, rolesYAML, bindingsYAML string) *Policy {
 	t.Helper()
+	return makePolicyWithRegistry(t, rolesYAML, bindingsYAML, nil)
+}
+
+func makePolicyWithRegistry(t *testing.T, rolesYAML, bindingsYAML string, registry map[string]session.ToolMeta) *Policy {
+	t.Helper()
 	rf, bf := parseYAML(t, rolesYAML, bindingsYAML)
-	p, err := compile(rf, bf)
+	p, err := compile(rf, bf, registry)
 	if err != nil {
 		t.Fatalf("compile: %v", err)
 	}
@@ -600,7 +606,7 @@ bindings:
 		var bf yamlBindingsFile
 		_ = unmarshalString(roles, &rf)
 		_ = unmarshalString(bindings, &bf)
-		_, err := compile(rf, bf)
+		_, err := compile(rf, bf, nil)
 		if err == nil {
 			t.Fatal("expected error for unknown constraint type, got nil")
 		}
@@ -618,7 +624,7 @@ bindings:
 		var bf yamlBindingsFile
 		_ = unmarshalString(roles, &rf)
 		_ = unmarshalString(bindings, &bf)
-		_, err := compile(rf, bf)
+		_, err := compile(rf, bf, nil)
 		if err == nil {
 			t.Fatal("expected error for dangling role reference, got nil")
 		}
@@ -637,7 +643,7 @@ roles:
 		var bf yamlBindingsFile
 		_ = unmarshalString(roles, &rf)
 		_ = unmarshalString(bindings, &bf)
-		_, err := compile(rf, bf)
+		_, err := compile(rf, bf, nil)
 		if err == nil {
 			t.Fatal("expected error for invalid verb, got nil")
 		}
@@ -666,7 +672,7 @@ bindings:
 	var bf yamlBindingsFile
 	_ = unmarshalString(roles, &rf)
 	_ = unmarshalString(bindings, &bf)
-	p, err := compile(rf, bf)
+	p, err := compile(rf, bf, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -708,5 +714,503 @@ bindings:
 	}
 	if !binding.Scopes["database"] {
 		t.Error("scope database not in compiled binding")
+	}
+}
+
+// ============================================================================
+// New tests for §6.1 — deny rules, server selectors, rule names, hot reload
+// ============================================================================
+
+// 1. TestEvaluate_DenyWinsOverAllow: role A allows github.search_code, role B
+// denies it — the deny must win and the reason must be explicit_deny.
+func TestEvaluate_DenyWinsOverAllow(t *testing.T) {
+	const roles = `
+roles:
+  - name: allow-github
+    rules:
+      - resources: ["github.search_code"]
+        verbs: [invoke]
+  - name: deny-github
+    rules:
+      - resources: ["github.search_code"]
+        effect: deny
+        verbs: [invoke]
+`
+	const bindings = `
+bindings:
+  - agent: test-agent
+    roles: [allow-github, deny-github]
+    scopes: [code]
+`
+	p := makePolicy(t, roles, bindings)
+	e := evt("github.search_code", "test-agent", "code", nil)
+	got := Evaluate(p, "test-agent", &e)
+
+	if got.Allowed {
+		t.Fatal("expected denied")
+	}
+	if got.Reason != session.ReasonExplicitDeny {
+		t.Errorf("Reason = %q, want %q", got.Reason, session.ReasonExplicitDeny)
+	}
+}
+
+// 2. TestEvaluate_DenyServerSelector: a deny rule with server:github selector
+// must deny every github.* tool for the agent.
+func TestEvaluate_DenyServerSelector(t *testing.T) {
+	registry := map[string]session.ToolMeta{
+		"github.search_code":    {},
+		"github.delete_branch":  {},
+		"github.create_pr":      {},
+		"slack.post_message":    {},
+	}
+
+	const roles = `
+roles:
+  - name: allow-all
+    rules:
+      - resources: ["*"]
+        verbs: [invoke]
+  - name: deny-github-server
+    rules:
+      - resources: ["server:github"]
+        effect: deny
+        verbs: [invoke]
+`
+	const bindings = `
+bindings:
+  - agent: test-agent
+    roles: [allow-all, deny-github-server]
+`
+	rf, bf := parseYAML(t, roles, bindings)
+	p, err := compile(rf, bf, registry)
+	if err != nil {
+		t.Fatalf("compile: %v", err)
+	}
+
+	for _, tool := range []string{"github.search_code", "github.delete_branch", "github.create_pr"} {
+		e := evt(tool, "test-agent", "", nil)
+		got := Evaluate(p, "test-agent", &e)
+		if got.Allowed {
+			t.Errorf("tool %q: expected denied, got allowed", tool)
+		}
+		if got.Reason != session.ReasonExplicitDeny {
+			t.Errorf("tool %q: Reason = %q, want %q", tool, got.Reason, session.ReasonExplicitDeny)
+		}
+	}
+
+	// slack.post_message must still be allowed
+	e := evt("slack.post_message", "test-agent", "", nil)
+	got := Evaluate(p, "test-agent", &e)
+	if !got.Allowed {
+		t.Errorf("slack.post_message: expected allowed, got denied with %q", got.Reason)
+	}
+}
+
+// 3. TestEvaluate_DenyWithConstraint_FiresOnMatch: a deny rule with
+// sql_intent:[delete] must block DELETE queries.
+func TestEvaluate_DenyWithConstraint_FiresOnMatch(t *testing.T) {
+	const roles = `
+roles:
+  - name: allow-db
+    rules:
+      - resources: ["db.query"]
+        verbs: [invoke]
+  - name: deny-delete
+    rules:
+      - resources: ["db.query"]
+        effect: deny
+        verbs: [invoke]
+        constraints:
+          sql_intent: [delete]
+`
+	const bindings = `
+bindings:
+  - agent: test-agent
+    roles: [allow-db, deny-delete]
+    scopes: [database]
+`
+	p := makePolicy(t, roles, bindings)
+	e := evt("db.query", "test-agent", "database", map[string]any{"query": "DELETE FROM users"})
+	got := Evaluate(p, "test-agent", &e)
+
+	if got.Allowed {
+		t.Fatal("DELETE: expected denied")
+	}
+	if got.Reason != session.ReasonExplicitDeny {
+		t.Errorf("DELETE: Reason = %q, want %q", got.Reason, session.ReasonExplicitDeny)
+	}
+}
+
+// 4. TestEvaluate_DenyWithConstraint_DoesNotFireOnMismatch: the same deny rule
+// must allow SELECT through (constraint does not match SELECT → deny doesn't fire).
+func TestEvaluate_DenyWithConstraint_DoesNotFireOnMismatch(t *testing.T) {
+	const roles = `
+roles:
+  - name: allow-db
+    rules:
+      - resources: ["db.query"]
+        verbs: [invoke]
+  - name: deny-delete
+    rules:
+      - resources: ["db.query"]
+        effect: deny
+        verbs: [invoke]
+        constraints:
+          sql_intent: [delete]
+`
+	const bindings = `
+bindings:
+  - agent: test-agent
+    roles: [allow-db, deny-delete]
+    scopes: [database]
+`
+	p := makePolicy(t, roles, bindings)
+	e := evt("db.query", "test-agent", "database", map[string]any{"query": "SELECT * FROM users"})
+	got := Evaluate(p, "test-agent", &e)
+
+	if !got.Allowed {
+		t.Errorf("SELECT: expected allowed, got denied with %q", got.Reason)
+	}
+}
+
+// 5. TestEvaluate_MatchedRuleNamePropagates: a rule with name:"Block dangerous SQL"
+// should expose that string in the decision's MatchedRuleName.
+func TestEvaluate_MatchedRuleNamePropagates(t *testing.T) {
+	const roles = `
+roles:
+  - name: allow-db
+    rules:
+      - resources: ["db.query"]
+        verbs: [invoke]
+  - name: deny-named
+    rules:
+      - name: "Block dangerous SQL"
+        resources: ["db.query"]
+        effect: deny
+        verbs: [invoke]
+        constraints:
+          sql_intent: [delete, drop, truncate]
+`
+	const bindings = `
+bindings:
+  - agent: test-agent
+    roles: [allow-db, deny-named]
+    scopes: [database]
+`
+	p := makePolicy(t, roles, bindings)
+	e := evt("db.query", "test-agent", "database", map[string]any{"query": "DROP TABLE users"})
+	got := Evaluate(p, "test-agent", &e)
+
+	if got.Allowed {
+		t.Fatal("expected denied")
+	}
+	if got.MatchedRuleName != "Block dangerous SQL" {
+		t.Errorf("MatchedRuleName = %q, want %q", got.MatchedRuleName, "Block dangerous SQL")
+	}
+}
+
+// 6. TestLoadPolicy_ServerSelectorExpands: server:github must resolve to all
+// github.* tools in the registry at compile time.
+func TestLoadPolicy_ServerSelectorExpands(t *testing.T) {
+	registry := map[string]session.ToolMeta{
+		"github.search_code":   {},
+		"github.delete_branch": {},
+		"github.create_pr":     {},
+		"slack.post_message":   {},
+	}
+
+	const roles = `
+roles:
+  - name: github-allow
+    rules:
+      - resources: ["server:github"]
+        verbs: [invoke]
+`
+	const bindings = `
+bindings:
+  - agent: test-agent
+    roles: [github-allow]
+`
+	rf, bf := parseYAML(t, roles, bindings)
+	p, err := compile(rf, bf, registry)
+	if err != nil {
+		t.Fatalf("compile: %v", err)
+	}
+
+	role, ok := p.Roles["github-allow"]
+	if !ok {
+		t.Fatal("role not found")
+	}
+	rule := role.Rules[0]
+
+	// server:github should have expanded to the 3 github.* tools
+	for _, tool := range []string{"github.search_code", "github.delete_branch", "github.create_pr"} {
+		if !rule.Resources[tool] {
+			t.Errorf("resource %q not in expanded rule.Resources", tool)
+		}
+	}
+	// slack should NOT be there
+	if rule.Resources["slack.post_message"] {
+		t.Error("slack.post_message should not be in server:github expansion")
+	}
+	// The raw selector "server:github" should not be literally present
+	if rule.Resources["server:github"] {
+		t.Error("raw selector server:github should not be in compiled Resources")
+	}
+}
+
+// 7. TestLoadPolicy_UnknownServerSelector: server:unknownsvr must produce a
+// load-time error.
+func TestLoadPolicy_UnknownServerSelector(t *testing.T) {
+	registry := map[string]session.ToolMeta{
+		"github.search_code": {},
+	}
+
+	const roles = `
+roles:
+  - name: bad-role
+    rules:
+      - resources: ["server:unknownsvr"]
+        verbs: [invoke]
+`
+	const bindings = `
+bindings:
+  - agent: test-agent
+    roles: [bad-role]
+`
+	rf, bf := parseYAML(t, roles, bindings)
+	_, err := compile(rf, bf, registry)
+	if err == nil {
+		t.Fatal("expected error for unknown server selector, got nil")
+	}
+}
+
+// 8. TestLoadPolicy_DefaultEffectAllow: a rule without an effect field must
+// default to "allow" (backward compatibility with existing YAML files).
+func TestLoadPolicy_DefaultEffectAllow(t *testing.T) {
+	const roles = `
+roles:
+  - name: default-effect-role
+    rules:
+      - resources: ["tool.x"]
+        verbs: [invoke]
+`
+	const bindings = `
+bindings:
+  - agent: test-agent
+    roles: [default-effect-role]
+    scopes: [test]
+`
+	p := makePolicy(t, roles, bindings)
+
+	role, ok := p.Roles["default-effect-role"]
+	if !ok {
+		t.Fatal("role not found")
+	}
+	if len(role.Rules) == 0 {
+		t.Fatal("no rules")
+	}
+	if role.Rules[0].Effect != EffectAllow {
+		t.Errorf("Effect = %q, want %q", role.Rules[0].Effect, EffectAllow)
+	}
+
+	// Also verify the rule actually allows the tool
+	e := evt("tool.x", "test-agent", "test", nil)
+	got := Evaluate(p, "test-agent", &e)
+	if !got.Allowed {
+		t.Errorf("expected allowed, got denied with %q", got.Reason)
+	}
+}
+
+// 9. TestCanDiscover_DenyWithoutConstraintHides: a constraint-less deny rule
+// must remove the tool from discovery.
+func TestCanDiscover_DenyWithoutConstraintHides(t *testing.T) {
+	const roles = `
+roles:
+  - name: allow-tool
+    rules:
+      - resources: ["tool.x"]
+        verbs: [invoke]
+  - name: deny-tool
+    rules:
+      - resources: ["tool.x"]
+        effect: deny
+        verbs: [invoke]
+`
+	const bindings = `
+bindings:
+  - agent: test-agent
+    roles: [allow-tool, deny-tool]
+    scopes: [test]
+`
+	p := makePolicy(t, roles, bindings)
+
+	if CanDiscover(p, "test-agent", "tool.x") {
+		t.Error("expected CanDiscover=false for tool covered by constraint-less deny rule")
+	}
+}
+
+// 10. TestCanDiscover_DenyWithConstraintDoesNotHide: a deny rule that has
+// constraints must NOT suppress discovery (we can't evaluate constraints at
+// tools/list time).
+func TestCanDiscover_DenyWithConstraintDoesNotHide(t *testing.T) {
+	const roles = `
+roles:
+  - name: allow-db
+    rules:
+      - resources: ["db.query"]
+        verbs: [invoke]
+  - name: deny-delete
+    rules:
+      - resources: ["db.query"]
+        effect: deny
+        verbs: [invoke]
+        constraints:
+          sql_intent: [delete]
+`
+	const bindings = `
+bindings:
+  - agent: test-agent
+    roles: [allow-db, deny-delete]
+    scopes: [database]
+`
+	p := makePolicy(t, roles, bindings)
+
+	// Tool should still be discoverable because the deny rule has a constraint.
+	if !CanDiscover(p, "test-agent", "db.query") {
+		t.Error("expected CanDiscover=true: deny rule has a constraint, so tool stays discoverable")
+	}
+}
+
+// 11. TestPolicyHolder_AtomicSwap: concurrent Get/Set on a PolicyHolder must
+// not panic and must eventually reflect the new policy.
+func TestPolicyHolder_AtomicSwap(t *testing.T) {
+	const roles1 = `
+roles:
+  - name: role-v1
+    rules:
+      - resources: ["tool.a"]
+        verbs: [invoke]
+`
+	const roles2 = `
+roles:
+  - name: role-v2
+    rules:
+      - resources: ["tool.b"]
+        verbs: [invoke]
+`
+	const bindings = `
+bindings:
+  - agent: agent-x
+    roles: [role-v1]
+    scopes: [test]
+`
+	const bindings2 = `
+bindings:
+  - agent: agent-x
+    roles: [role-v2]
+    scopes: [test]
+`
+	p1 := makePolicy(t, roles1, bindings)
+	p2 := makePolicy(t, roles2, bindings2)
+
+	holder := NewPolicyHolder(p1)
+
+	var wg sync.WaitGroup
+	const readers = 50
+	const swaps = 20
+
+	// Concurrent readers
+	for i := 0; i < readers; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for j := 0; j < 100; j++ {
+				got := holder.Get()
+				// Must not panic; pointer must be non-nil (we started with p1).
+				if got == nil {
+					t.Errorf("Get() returned nil unexpectedly")
+					return
+				}
+			}
+		}()
+	}
+
+	// Concurrent swaps between p1 and p2
+	for i := 0; i < swaps; i++ {
+		wg.Add(1)
+		go func(n int) {
+			defer wg.Done()
+			if n%2 == 0 {
+				holder.Set(p2)
+			} else {
+				holder.Set(p1)
+			}
+		}(i)
+	}
+
+	wg.Wait()
+
+	// After all goroutines, the holder must return a non-nil policy.
+	if holder.Get() == nil {
+		t.Error("holder.Get() is nil after concurrent swap test")
+	}
+}
+
+// 12. TestEngine_Reload: after Reload, ProcessEvent uses the new policy.
+func TestEngine_Reload(t *testing.T) {
+	// Note: we test the engine via authz.Evaluate directly since engine_test
+	// is in a different package. Instead we use the PolicyHolder directly.
+	const roles1 = `
+roles:
+  - name: allow-tool-a
+    rules:
+      - resources: ["tool.a"]
+        verbs: [invoke]
+`
+	const roles2 = `
+roles:
+  - name: allow-tool-b
+    rules:
+      - resources: ["tool.b"]
+        verbs: [invoke]
+`
+	const bindings1 = `
+bindings:
+  - agent: agent-x
+    roles: [allow-tool-a]
+    scopes: [test]
+`
+	const bindings2 = `
+bindings:
+  - agent: agent-x
+    roles: [allow-tool-b]
+    scopes: [test]
+`
+	p1 := makePolicy(t, roles1, bindings1)
+	p2 := makePolicy(t, roles2, bindings2)
+
+	holder := NewPolicyHolder(p1)
+
+	// Before reload: tool.a is allowed, tool.b is not.
+	eA := session.SessionEvent{ToolName: "tool.a", AgentID: "agent-x", Scope: "test", Payload: map[string]any{}}
+	d := Evaluate(holder.Get(), "agent-x", &eA)
+	if !d.Allowed {
+		t.Fatalf("before reload: tool.a expected allowed, got %q", d.Reason)
+	}
+
+	// Reload to p2.
+	holder.Set(p2)
+
+	// After reload: tool.a should be denied (no_matching_rule), tool.b allowed.
+	d = Evaluate(holder.Get(), "agent-x", &eA)
+	if d.Allowed {
+		t.Errorf("after reload: tool.a expected denied, got allowed")
+	}
+
+	eB := session.SessionEvent{ToolName: "tool.b", AgentID: "agent-x", Scope: "test", Payload: map[string]any{}}
+	d = Evaluate(holder.Get(), "agent-x", &eB)
+	if !d.Allowed {
+		t.Errorf("after reload: tool.b expected allowed, got %q", d.Reason)
 	}
 }

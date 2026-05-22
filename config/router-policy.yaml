@@ -1,0 +1,63 @@
+schema_version: 1
+
+classifier:
+  model: openai/gpt-4o-mini
+  timeout_ms: 1500
+  max_tokens: 150
+
+# The counterfactual "what if we used one model for everything" reference.
+# Used by the Router Live screen's savings calculation.
+baseline:
+  model: openai/gpt-4o
+
+# First-match-wins. Rules are evaluated in source order.
+routes:
+  - name: "Vision requests"
+    if:
+      capabilities_include: vision
+    target: google/gemini-flash-latest
+    fallback: [openai/gpt-4o-mini]
+    reason: "Gemini Flash handles vision cheaply with low latency."
+
+  - name: "High-complexity code"
+    if:
+      task: code
+      complexity: [medium, high]
+    target: anthropic/claude-sonnet-4.6
+    fallback: [anthropic/claude-haiku-4.5, openai/gpt-4o-mini]
+    reason: "Sonnet 4.6 leads on multi-file code generation; Haiku is the cheap fallback."
+
+  - name: "Cheap classification"
+    if:
+      task: classification
+      complexity: [low]
+    target: openai/gpt-4o-mini
+    fallback: [anthropic/claude-haiku-4.5]
+    reason: "GPT-4o-mini handles trivial labeling cheaply."
+
+  - name: "Short summarization"
+    if:
+      task: summarization
+      complexity: [low, medium]
+    target: anthropic/claude-haiku-4.5
+    fallback: [openai/gpt-4o-mini]
+    reason: "Haiku is well-tuned for summarization at low cost."
+
+  - name: "RAG / Q&A"
+    if:
+      task: rag
+    target: anthropic/claude-haiku-4.5
+    fallback: [openai/gpt-4o-mini]
+    reason: "Haiku handles retrieval-augmented tasks well."
+
+  - name: "Conversation"
+    if:
+      task: conversation
+    target: openai/gpt-4o-mini
+    fallback: [anthropic/claude-haiku-4.5]
+    reason: "GPT-4o-mini handles casual conversation cheaply."
+
+default:
+  target: openai/gpt-4o-mini
+  fallback: [anthropic/claude-haiku-4.5]
+  reason: "Reliable, cheap fallback for anything not matched."

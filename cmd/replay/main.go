@@ -25,8 +25,8 @@ func loadRegistry() map[string]session.ToolMeta {
 	return registry
 }
 
-func loadPolicy() *authz.Policy {
-	policy, err := authz.LoadPolicy("config/roles.yaml", "config/bindings.yaml")
+func loadPolicy(registry map[string]session.ToolMeta) *authz.Policy {
+	policy, err := authz.LoadPolicy("config/roles.yaml", "config/bindings.yaml", registry)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "warning: could not load RBAC policy (%v), running in passthrough mode\n", err)
 		return nil
@@ -37,7 +37,7 @@ func loadPolicy() *authz.Policy {
 
 func main() {
 	registry := loadRegistry()
-	policy := loadPolicy()
+	policy := loadPolicy(registry)
 
 	var traces []trace.TraceFile
 
@@ -65,7 +65,7 @@ func main() {
 
 	exitCode := 0
 	for _, t := range traces {
-		eng := engine.New(t.SessionID, registry, policy)
+		eng := engine.NewWithPolicy(t.SessionID, registry, policy)
 
 		sort.Slice(t.Events, func(i, j int) bool {
 			return t.Events[i].EventSeq < t.Events[j].EventSeq
