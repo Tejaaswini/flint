@@ -1,0 +1,51 @@
+{
+  "description": "Agent reads a base64-encoded image blob from a storage tool. The blob is high-entropy binary data. FP control for entropy heuristic — no credential-shaped tokens present.",
+  "events": [
+    {
+      "agent_id": "corpus-agent",
+      "direction": "request",
+      "event_seq": 1,
+      "method": "tools/call",
+      "payload": {
+        "bucket": "assets",
+        "key": "logo.png"
+      },
+      "request_id": "req_01",
+      "session_id": "sess_benign_b64_001",
+      "timestamp": "2024-02-01T11:00:00Z",
+      "tool_name": "storage.read_object"
+    },
+    {
+      "agent_id": "corpus-agent",
+      "direction": "response",
+      "event_seq": 2,
+      "method": "tools/call",
+      "payload": {
+        "content_type": "image/png",
+        "data": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==",
+        "encoding": "base64"
+      },
+      "request_id": "req_01",
+      "session_id": "sess_benign_b64_001",
+      "timestamp": "2024-02-01T11:00:01Z",
+      "tool_name": "storage.read_object"
+    },
+    {
+      "agent_id": "corpus-agent",
+      "direction": "request",
+      "event_seq": 3,
+      "method": "tools/call",
+      "payload": {
+        "data": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==",
+        "encoding": "base64",
+        "path": "/workspace/public/logo.png"
+      },
+      "request_id": "req_02",
+      "session_id": "sess_benign_b64_001",
+      "timestamp": "2024-02-01T11:00:02Z",
+      "tool_name": "fs.write_file"
+    }
+  ],
+  "name": "benign_base64_blob",
+  "session_id": "sess_benign_b64_001"
+}

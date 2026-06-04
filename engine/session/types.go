@@ -141,6 +141,12 @@ type SessionState struct {
 	Findings         []Finding
 	PolicyDecisions  []PolicyDecision
 	DeniedRequestIDs map[string]bool
+	// RestrictedEvents tracks event sequences that have been flagged as
+	// containing credential-shaped tokens by EvalCredentialExfil. Keyed by
+	// EventSeq. Used by isRestrictedSource to compose with EvalSecretRelay
+	// without requiring a PayloadClass mutation that would be lost after the
+	// slice-append copy in engine.ProcessEvent.
+	RestrictedEvents map[int64]bool
 }
 
 type ToolMeta struct {

@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "trace_name": "rbac_demo_no_binding",
+  "session_id": "sess_rbac_rogue_001",
+  "session": {
+    "attack_class": "benign",
+    "expected_disposition": "allow",
+    "expected_rules_silent": ["credential_exposure", "secret_relay"],
+    "notes": "rogue-agent has no binding — all requests denied at RBAC gate. Nothing reaches the behavioral engine, so no findings are produced. Disposition stays 'allow' because the engine never processes an event.",
+    "source": "synthetic"
+  },
+  "events": []
+}

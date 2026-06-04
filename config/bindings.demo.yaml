@@ -10,3 +10,7 @@ bindings:
   - agent: locked-down
     roles: [demo-strict-allowlist]
     scopes: ["*"]
+
+  - agent: exfil-demo-bot
+    roles: [exfil-demo-allowlist]
+    scopes: ["*"]

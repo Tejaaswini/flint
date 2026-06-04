@@ -10,8 +10,10 @@ import (
 )
 
 var secretPatterns = []*regexp.Regexp{
-	regexp.MustCompile(`sk[-_]live[-_][A-Za-z0-9]{20,}`),
-	regexp.MustCompile(`sk[-_][A-Za-z0-9]{20,}`),
+	// Stripe live keys: sk-live-<body>
+	regexp.MustCompile(`sk[-_]live[-_][A-Za-z0-9_-]{20,}`),
+	// OpenAI keys: sk-<body> or sk-proj-<body> (proj- infix requires [-_] in body class)
+	regexp.MustCompile(`sk[-_][A-Za-z0-9_-]{20,}`),
 	regexp.MustCompile(`ghp_[A-Za-z0-9]{36,}`),
 	regexp.MustCompile(`github_pat_[A-Za-z0-9_]{20,}`),
 	regexp.MustCompile(`AKIA[A-Z0-9]{16}`),

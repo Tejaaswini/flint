@@ -1,0 +1,26 @@
+{
+  "schema_version": 1,
+  "trace_name": "benign_jwt_public_sample",
+  "session_id": "sess_benign_jwt_001",
+  "session": {
+    "attack_class": "benign",
+    "expected_disposition": "warn",
+    "expected_rules_fired": ["credential_exposure"],
+    "notes": "KNOWN FALSE POSITIVE: The RFC 7519 §A.1 public sample JWT matches our generic_jwt regex. This is an accepted trade-off — JWTs in production tool responses are real credentials in >99% of cases. This corpus entry pins the FP so it does not become a silent regression. The must_fire:true label documents the KNOWN FP, not a TP. See devlog 025 §7 item 4.",
+    "source": "synthetic"
+  },
+  "events": [
+    {
+      "event_seq": 2,
+      "labels": ["jwt_benign"],
+      "contains_credentials": false,
+      "credential_kinds": [],
+      "expected_findings": [
+        {"rule_id": "credential_exposure", "must_fire": true}
+      ],
+      "expected_post_state": {
+        "restricted": true
+      }
+    }
+  ]
+}

@@ -1,0 +1,32 @@
+{
+  "description": "Agent reads an auth token response containing the RFC 7519 §A.1 public sample JWT. This is a known FP: our generic_jwt regex matches it. The JWT is a publicly-disclosed test token and carries no secret — but the rule fires because JWTs in production tool responses are real credentials in \u003e99% of cases. See docs/corpus-labels-schema.md and devlog 026 for the accepted trade-off.",
+  "events": [
+    {
+      "agent_id": "corpus-agent",
+      "direction": "request",
+      "event_seq": 1,
+      "method": "tools/call",
+      "payload": {},
+      "request_id": "req_01",
+      "session_id": "sess_benign_jwt_001",
+      "timestamp": "2024-02-01T12:00:00Z",
+      "tool_name": "auth.whoami"
+    },
+    {
+      "agent_id": "corpus-agent",
+      "direction": "response",
+      "event_seq": 2,
+      "method": "tools/call",
+      "payload": {
+        "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiaWF0IjoxNTE2MjM5MDIyfQ.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c",
+        "user": "john.doe@example.com"
+      },
+      "request_id": "req_01",
+      "session_id": "sess_benign_jwt_001",
+      "timestamp": "2024-02-01T12:00:01Z",
+      "tool_name": "auth.whoami"
+    }
+  ],
+  "name": "benign_jwt_public_sample",
+  "session_id": "sess_benign_jwt_001"
+}

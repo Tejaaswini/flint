@@ -86,7 +86,7 @@ cleanup() {
 trap cleanup EXIT INT TERM
 
 # ----- open browser ----------------------------------------------------------
-( sleep 1 && open http://127.0.0.1:5173 ) &
+( sleep 1 && open http://127.0.0.1:5173/sessions ) &
 
 echo
 echo "Flint demo running:"

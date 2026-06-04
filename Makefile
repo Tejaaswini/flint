@@ -1,4 +1,4 @@
-.PHONY: all build build-gateway build-router build-control build-ui test demo demo-router kill clean
+.PHONY: all build build-gateway build-router build-control build-ui test demo demo-exfil demo-router kill clean
 
 all: build
 
@@ -37,12 +37,15 @@ test-engine:
 # Demo
 # ---------------------------------------------------------------------------
 
-demo: build-gateway build-control
+demo: build-gateway build-control build-ui
 	@./scripts/demo.sh
 
 # Run the demo using the UI dev server (Vite) — UI prebuild not required.
-demo-dev: build-gateway build-control
+demo-dev: build-gateway build-control build-ui
 	@./scripts/demo.sh
+
+demo-exfil: build-gateway build-control build-ui
+	@./scripts/exfil-demo.sh $(ARGS)
 
 demo-router: build-router build-control
 	@./scripts/router-demo.sh

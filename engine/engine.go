@@ -44,6 +44,7 @@ func New(id string, registry map[string]session.ToolMeta, holder *authz.PolicyHo
 			TokenIndex:       make(map[string][]session.TokenOccurrence),
 			FieldHashIndex:   make(map[string][]session.FieldOccurrence),
 			DeniedRequestIDs: make(map[string]bool),
+			RestrictedEvents: make(map[int64]bool),
 		},
 	}
 }
@@ -88,10 +89,13 @@ func (e *Engine) Snapshot() session.SessionState {
 }
 
 // ProcessEvent runs an event through RBAC + behavioral analysis.
-// Returns the PolicyDecision (nil for response-side events that skip the gate)
-// alongside any findings, so callers don't need to read e.Session under their
-// own locking. Safe for concurrent calls.
-func (e *Engine) ProcessEvent(evt session.SessionEvent) (*session.PolicyDecision, []session.Finding) {
+// Returns the PolicyDecision (nil for response-side events that skip the gate),
+// any findings produced, and the post-event session disposition captured while
+// the mutex is still held. Callers must use the returned disposition instead of
+// reading e.Session.Disposition directly to avoid a data race between the two
+// concurrent goroutines (fromAgent / fromUpstream) that call this method.
+// Safe for concurrent calls.
+func (e *Engine) ProcessEvent(evt session.SessionEvent) (*session.PolicyDecision, []session.Finding, string) {
 	// Capture the policy snapshot once at entry so the entire request
 	// (including its correlated response) uses the same policy version,
 	// even if Reload is called mid-flight.
@@ -114,7 +118,7 @@ func (e *Engine) ProcessEvent(evt session.SessionEvent) (*session.PolicyDecision
 		e.Session.PolicyDecisions = append(e.Session.PolicyDecisions, d)
 		if !d.Allowed {
 			e.Session.DeniedRequestIDs[evt.RequestID] = true
-			return decision, nil
+			return decision, nil, e.Session.Disposition
 		}
 	}
 
@@ -124,6 +128,7 @@ func (e *Engine) ProcessEvent(evt session.SessionEvent) (*session.PolicyDecision
 	e.Session.Edges = append(e.Session.Edges, lineage.BuildLineage(e.Session, &evt)...)
 
 	var findings []session.Finding
+	findings = append(findings, rules.EvalCredentialExfil(e.Session, &evt)...)
 	findings = append(findings, rules.EvalSecretRelay(e.Session, &evt)...)
 	findings = append(findings, rules.EvalRestrictedWrite(e.Session, &evt)...)
 	findings = append(findings, rules.EvalPagination(e.Session, &evt)...)
@@ -136,7 +141,12 @@ func (e *Engine) ProcessEvent(evt session.SessionEvent) (*session.PolicyDecision
 		risk.Apply(e.Session, f)
 	}
 
-	return decision, findings
+	// Capture disposition while still holding the mutex so the caller sees the
+	// post-event value without racing against a concurrent ProcessEvent call on
+	// the other proxy goroutine.
+	disposition := e.Session.Disposition
+
+	return decision, findings, disposition
 }
 
 func estSize(p any) int {

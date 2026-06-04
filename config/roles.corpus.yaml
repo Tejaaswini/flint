@@ -1,0 +1,27 @@
+roles:
+  # Permissive role for corpus replay. Grants invoke on every tool the corpus
+  # traces touch so that request events pass RBAC and reach the behavioral engine.
+  # This role is ONLY used by flint-replay --corpus; never load it in production.
+  - name: corpus-allow-all
+    rules:
+      - name: "Allow all corpus tools"
+        effect: allow
+        resources:
+          - support.read_ticket
+          - support.post_reply
+          - db.execute_sql
+          - config.read
+          - gmail.send
+          - github.get_secret
+          - webhook.post
+          - github.search_code
+          - fs.read_file
+          - fs.write_file
+          - whatsapp.read_messages
+          - crm.lookup_customer
+          - crm.get_integration_tokens
+          - slack.post_message
+          - storage.read_object
+          - auth.whoami
+        verbs:
+          - invoke

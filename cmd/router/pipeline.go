@@ -201,7 +201,12 @@ func (p *Pipeline) Process(ctx context.Context, req *ChatRequest, requestID stri
 
 	// 6. Totals
 	row.TotalCostUSD = row.ClassifierCostUSD + row.ForwardCostUSD
-	row.SavingsUSD = row.BaselineCostUSD - row.TotalCostUSD
+	// Classifier-failed requests fell through to default rule; the routing was blind, so credit nothing as savings (see concerns.md C-002).
+	if row.ClassifierFailed {
+		row.SavingsUSD = 0
+	} else {
+		row.SavingsUSD = row.BaselineCostUSD - row.TotalCostUSD
+	}
 	row.TotalLatencyMs = float64(time.Since(t0).Milliseconds())
 
 	// 7. Audit

@@ -1,0 +1,42 @@
+{
+  "schema_version": 1,
+  "trace_name": "cross_scope_crm_leak",
+  "session_id": "sess_crm_001",
+  "session": {
+    "attack_class": "cross_scope_leak",
+    "expected_disposition": "warn",
+    "expected_rules_fired": ["cross_scope_data_movement"],
+    "expected_rules_silent": ["credential_exposure", "secret_relay"],
+    "notes": "Restricted CRM data crosses scope boundary into a GitHub code search. With corpus-agent bound to corpus-allow-all, all request events pass RBAC. crm.lookup_customer has payload_class=restricted in tools.yaml, so the response (event 2) is a restricted source. EvalCrossScopeMovement fires on event 3 (github.search_code request): field_value_overlap edge built because 'Acme Industries' appears in both the CRM response and the search query. Disposition: warn. No API credential shapes present so credential_exposure is silent.",
+    "source": "synthetic"
+  },
+  "events": [
+    {
+      "event_seq": 2,
+      "labels": [],
+      "contains_credentials": false,
+      "credential_kinds": [],
+      "expected_findings": [
+        {"rule_id": "credential_exposure", "must_fire": false}
+      ]
+    },
+    {
+      "event_seq": 3,
+      "labels": ["cross_scope"],
+      "contains_credentials": false,
+      "credential_kinds": [],
+      "expected_findings": [
+        {"rule_id": "cross_scope_data_movement", "must_fire": true}
+      ]
+    },
+    {
+      "event_seq": 4,
+      "labels": [],
+      "contains_credentials": false,
+      "credential_kinds": [],
+      "expected_findings": [
+        {"rule_id": "credential_exposure", "must_fire": false}
+      ]
+    }
+  ]
+}

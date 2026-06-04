@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"sync"
 	"sync/atomic"
+	"syscall"
 	"time"
 	"unicode/utf8"
 
@@ -60,6 +61,10 @@ type Proxy struct {
 	holder   *authz.PolicyHolder
 	audit    *Writer
 
+	// enforceMode controls whether the gateway blocks on pause/terminate
+	// disposition ("block") or only logs ("observe").
+	enforceMode string
+
 	seqCounter int64
 
 	mu      sync.Mutex
@@ -78,15 +83,21 @@ type Proxy struct {
 }
 
 // NewProxy constructs a Proxy. holder and audit may be nil for test use.
-func NewProxy(agentID string, upstream []string, eng *engine.Engine, holder *authz.PolicyHolder, audit *Writer) *Proxy {
+// enforceMode must be "block" (default — actively refuse forwarding on
+// pause/terminate) or "observe" (log only, preserves old pass-through behavior).
+func NewProxy(agentID string, upstream []string, eng *engine.Engine, holder *authz.PolicyHolder, audit *Writer, enforceMode string) *Proxy {
+	if enforceMode == "" {
+		enforceMode = "block"
+	}
 	return &Proxy{
-		agentID:  agentID,
-		upstream: upstream,
-		eng:      eng,
-		holder:   holder,
-		audit:    audit,
-		pending:  make(map[string]pendingReq),
-		stopCh:   make(chan struct{}),
+		agentID:     agentID,
+		upstream:    upstream,
+		eng:         eng,
+		holder:      holder,
+		audit:       audit,
+		enforceMode: enforceMode,
+		pending:     make(map[string]pendingReq),
+		stopCh:      make(chan struct{}),
 	}
 }
 
@@ -161,7 +172,7 @@ func (p *Proxy) Drain() {
 
 	// Signal upstream to terminate.
 	if p.cmd != nil && p.cmd.Process != nil {
-		if err := p.cmd.Process.Signal(os.Interrupt); err != nil {
+		if err := p.cmd.Process.Signal(syscall.SIGTERM); err != nil {
 			slog.Warn("failed to signal upstream process", "error", err)
 		}
 	}
@@ -254,10 +265,17 @@ func (p *Proxy) handleToolsCall(msg message, idKey string, enc *json.Encoder) {
 		Payload:   params.Arguments,
 	}
 
-	dec, _ := p.eng.ProcessEvent(evt)
+	dec, findings, disposition := p.eng.ProcessEvent(evt)
 
-	// Write request-side audit row.
-	p.writeRequestAudit(evt, dec, params.Arguments)
+	// Behavioral enforcement hook (P1.9): consult the session disposition and
+	// decide whether to block this request before forwarding upstream.
+	// Use the disposition returned by ProcessEvent (captured under the mutex)
+	// rather than reading p.eng.Session.Disposition directly, to avoid a race
+	// with the concurrent fromUpstream goroutine.
+	enfDec := DecideEnforcement(disposition, findings, p.enforceMode)
+
+	// Write request-side audit row (with enforcement outcome).
+	p.writeRequestAuditWithEnforcement(evt, dec, params.Arguments, enfDec, findings)
 
 	if dec != nil && !dec.Allowed {
 		reason := dec.Reason
@@ -271,6 +289,12 @@ func (p *Proxy) handleToolsCall(msg message, idKey string, enc *json.Encoder) {
 				Message: "flint: " + reason,
 			},
 		})
+		return
+	}
+
+	if enfDec.Block {
+		slog.Warn("BLOCKED", "agent", p.agentID, "tool", params.Name, "rule", enfDec.CitedRuleID, "disposition", disposition)
+		enc.Encode(buildBlockedRequestResponse(msg.ID, enfDec.CitedRuleID, findings))
 		return
 	}
 
@@ -341,16 +365,18 @@ func (p *Proxy) fromUpstream(in io.Reader, out io.Writer) {
 	}
 }
 
-// handleToolsCallResponse feeds the response into the behavioral engine and
-// writes a response-side audit row.
-func (p *Proxy) handleToolsCallResponse(msg message, idKey, toolName string, start time.Time) {
+// handleToolsCallResponse feeds the response into the behavioral engine,
+// applies the enforcement hook, and writes a response-side audit row.
+// Returns true when the response was blocked (caller must NOT enc.Encode the
+// original message; the replacement has already been sent to the agent).
+func (p *Proxy) handleToolsCallResponse(msg message, idKey, toolName string, start time.Time) (blocked bool) {
 	if msg.Result == nil || msg.Error != nil {
-		return
+		return false
 	}
 
 	var payload map[string]any
 	if err := json.Unmarshal(msg.Result, &payload); err != nil {
-		return
+		return false
 	}
 
 	latencyMs := time.Since(start).Seconds() * 1000
@@ -367,7 +393,8 @@ func (p *Proxy) handleToolsCallResponse(msg message, idKey, toolName string, sta
 		Payload:   payload,
 	}
 
-	_, findings := p.eng.ProcessEvent(evt)
+	_, findings, disposition := p.eng.ProcessEvent(evt)
+
 	for _, f := range findings {
 		slog.Info("FINDING",
 			"rule", f.RuleID,
@@ -376,24 +403,66 @@ func (p *Proxy) handleToolsCallResponse(msg message, idKey, toolName string, sta
 		)
 	}
 
-	// Write response-side audit row.
-	p.writeResponseAudit(evt, latencyMs, findings)
+	// Behavioral enforcement hook (P1.9): block the response if the session
+	// disposition is pause or terminate.
+	// Use the disposition returned by ProcessEvent (captured under the mutex)
+	// rather than reading p.eng.Session.Disposition directly, to avoid a race
+	// with the concurrent fromAgent goroutine.
+	enfDec := DecideEnforcement(disposition, findings, p.enforceMode)
+
+	// Write response-side audit row (with enforcement outcome).
+	p.writeResponseAuditWithEnforcement(evt, latencyMs, findings, enfDec)
+
+	if enfDec.Block {
+		slog.Warn("BLOCKED_RESPONSE", "agent", p.agentID, "tool", toolName, "rule", enfDec.CitedRuleID, "disposition", disposition)
+		// Replace msg.Result in-place so that the caller's enc.Encode sends the
+		// blocked payload instead of the original result.
+		replacement := buildBlockedResponseResult(enfDec.CitedRuleID)
+		replacementBytes, err := json.Marshal(replacement)
+		if err == nil {
+			msg.Result = replacementBytes
+		}
+		return true
+	}
+	return false
 }
 
-// writeRequestAudit emits a "request" direction audit row.
-func (p *Proxy) writeRequestAudit(evt session.SessionEvent, dec *session.PolicyDecision, args map[string]any) {
+// writeRequestAuditWithEnforcement emits a "request" direction audit row.
+// enfDec carries the enforcement outcome for behavioral findings. RBAC denials
+// override the enforced_action to "blocked_rbac" to distinguish them.
+func (p *Proxy) writeRequestAuditWithEnforcement(
+	evt session.SessionEvent,
+	dec *session.PolicyDecision,
+	args map[string]any,
+	enfDec EnforcementDecision,
+	findings []session.Finding,
+) {
 	if p.audit == nil {
 		return
 	}
 
+	findingRows := make([]api.FindingRow, 0, len(findings))
+	for _, f := range findings {
+		findingRows = append(findingRows, api.FindingRow{
+			RuleID:   f.RuleID,
+			Severity: f.Severity,
+			Score:    f.Score,
+			Message:  f.Message,
+			Action:   f.Action,
+		})
+	}
+
 	row := api.DecisionRow{
-		TS:        evt.Timestamp.UTC().Format(time.RFC3339Nano),
-		SessionID: evt.SessionID,
-		AgentID:   evt.AgentID,
-		ToolName:  evt.ToolName,
-		Direction: "request",
-		RequestID: evt.RequestID,
-		EventSeq:  evt.EventSeq,
+		TS:             evt.Timestamp.UTC().Format(time.RFC3339Nano),
+		SessionID:      evt.SessionID,
+		AgentID:        evt.AgentID,
+		ToolName:       evt.ToolName,
+		Direction:      "request",
+		RequestID:      evt.RequestID,
+		EventSeq:       evt.EventSeq,
+		Findings:       findingRows,
+		SchemaVersion:  api.AuditSchemaVersion,
+		EnforcedAction: enfDec.EnforcedAction,
 	}
 
 	if dec != nil {
@@ -411,6 +480,11 @@ func (p *Proxy) writeRequestAudit(evt session.SessionEvent, dec *session.PolicyD
 		if row.MatchedRuleName == "" && dec.MatchedRole != "" {
 			row.MatchedRuleName = fmt.Sprintf("%s#%d", dec.MatchedRole, dec.MatchedRule)
 		}
+
+		// RBAC-denied requests are hard-blocked; override with distinct value.
+		if !dec.Allowed {
+			row.EnforcedAction = "blocked_rbac"
+		}
 	}
 
 	// Payload excerpt — best effort, truncated to 256 bytes.
@@ -421,8 +495,14 @@ func (p *Proxy) writeRequestAudit(evt session.SessionEvent, dec *session.PolicyD
 	}
 }
 
-// writeResponseAudit emits a "response" direction audit row with latency and findings.
-func (p *Proxy) writeResponseAudit(evt session.SessionEvent, latencyMs float64, findings []session.Finding) {
+// writeResponseAuditWithEnforcement emits a "response" direction audit row
+// with latency, findings, and enforcement outcome.
+func (p *Proxy) writeResponseAuditWithEnforcement(
+	evt session.SessionEvent,
+	latencyMs float64,
+	findings []session.Finding,
+	enfDec EnforcementDecision,
+) {
 	if p.audit == nil {
 		return
 	}
@@ -434,24 +514,73 @@ func (p *Proxy) writeResponseAudit(evt session.SessionEvent, latencyMs float64, 
 			Severity: f.Severity,
 			Score:    f.Score,
 			Message:  f.Message,
+			Action:   f.Action,
 		})
 	}
 
 	row := api.DecisionRow{
-		TS:        evt.Timestamp.UTC().Format(time.RFC3339Nano),
-		SessionID: evt.SessionID,
-		AgentID:   evt.AgentID,
-		ToolName:  evt.ToolName,
-		Direction: "response",
-		Allowed:   true,
-		RequestID: evt.RequestID,
-		EventSeq:  evt.EventSeq,
-		LatencyMs: &latencyMs,
-		Findings:  findingRows,
+		TS:             evt.Timestamp.UTC().Format(time.RFC3339Nano),
+		SessionID:      evt.SessionID,
+		AgentID:        evt.AgentID,
+		ToolName:       evt.ToolName,
+		Direction:      "response",
+		Allowed:        true,
+		RequestID:      evt.RequestID,
+		EventSeq:       evt.EventSeq,
+		LatencyMs:      &latencyMs,
+		Findings:       findingRows,
+		SchemaVersion:  api.AuditSchemaVersion,
+		EnforcedAction: enfDec.EnforcedAction,
 	}
 
 	if err := p.audit.Write(row); err != nil {
 		slog.Warn("audit write error (response)", "error", err)
+	}
+}
+
+// buildBlockedRequestResponse constructs a JSON-RPC error response to send
+// back to the agent when a request is blocked by the behavioral engine.
+// The JSON-RPC spec requires the response ID to echo the request ID.
+// Code -32001 is a custom application error (not reserved by JSON-RPC 2.0).
+func buildBlockedRequestResponse(id json.RawMessage, ruleID string, findings []session.Finding) message {
+	type findingSummary struct {
+		RuleID   string `json:"rule_id"`
+		Severity string `json:"severity"`
+	}
+	var fSummaries []findingSummary
+	for _, f := range findings {
+		fSummaries = append(fSummaries, findingSummary{RuleID: f.RuleID, Severity: f.Severity})
+	}
+	// fSummaries reserved for a future rpcError.Data field (not in rpcError struct today).
+	_ = fSummaries
+
+	rpcMsg := "blocked by flint"
+	if ruleID != "" {
+		rpcMsg = "blocked by flint: " + ruleID
+	}
+	return message{
+		JSONRPC: "2.0",
+		ID:      id,
+		Error: &rpcError{
+			Code:    -32001,
+			Message: rpcMsg,
+		},
+	}
+}
+
+// buildBlockedResponseResult constructs the MCP tool-call error shape used to
+// replace a blocked upstream response before forwarding to the agent.
+// Shape: {"content": [{"type": "text", "text": "blocked by flint: <rule>"}], "isError": true}
+func buildBlockedResponseResult(ruleID string) map[string]any {
+	msg := "blocked by flint"
+	if ruleID != "" {
+		msg = "blocked by flint: " + ruleID
+	}
+	return map[string]any{
+		"content": []map[string]any{
+			{"type": "text", "text": msg},
+		},
+		"isError": true,
 	}
 }
 

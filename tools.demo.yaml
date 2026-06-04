@@ -45,3 +45,16 @@ tools:
     tags: [test]
     scope: demo
     payload_class: public
+
+  # --- exfil-demo tools (vulnerable-mcp.mjs) -----------------------------------
+  # read_config: data_source only (NOT restricted) — credential_exposure rule
+  # earns its keep by detecting the key in the response payload.
+  - name: read_config
+    tags: [data_source]
+    scope: demo
+
+  # post_webhook: external_write + network_egress — these are the tags that
+  # EvalSecretRelay and EvalRestrictedWrite key off on the request side.
+  - name: post_webhook
+    tags: [external_write, network_egress]
+    scope: demo

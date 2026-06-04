@@ -31,3 +31,10 @@ roles:
             - add
           verbs:
             - invoke
+    # Permissive role for the exfil demo: RBAC allows both tools so the
+    # behavioral engine (credential_exposure + secret_relay) does the blocking.
+    - name: exfil-demo-allowlist
+      rules:
+        - name: "Permissive for exfil demo (rules stop the attack, not RBAC)"
+          resources: [read_config, post_webhook]
+          verbs: [invoke]

@@ -35,6 +35,7 @@ func main() {
 	toolsPath := flag.String("tools", "tools.yaml", "path to tools.yaml registry")
 	auditPath := flag.String("audit", "flint-audit.jsonl", "path to JSONL audit log (append mode)")
 	httpAddr := flag.String("http-addr", "127.0.0.1:7476", "address for the gateway HTTP sidecar (healthz + reload)")
+	enforceMode := flag.String("enforce-mode", "block", "enforcement mode: block (default) or observe. block actively refuses forwarding when disposition is pause/terminate; observe logs only")
 	flag.Parse()
 
 	upstream := flag.Args()
@@ -50,6 +51,11 @@ func main() {
 
 	if agentID == "" || len(upstream) == 0 {
 		fmt.Fprintln(os.Stderr, "usage: flint-gateway --agent <id> [flags] -- <upstream> [args...]")
+		os.Exit(1)
+	}
+
+	if *enforceMode != "block" && *enforceMode != "observe" {
+		fmt.Fprintf(os.Stderr, "error: --enforce-mode must be 'block' or 'observe', got %q\n", *enforceMode)
 		os.Exit(1)
 	}
 
@@ -87,7 +93,7 @@ func main() {
 	eng := engine.New(sessionID, registry, holder)
 
 	// --- build proxy ---
-	p := NewProxy(agentID, upstream, eng, holder, auditWriter)
+	p := NewProxy(agentID, upstream, eng, holder, auditWriter, *enforceMode)
 
 	// --- reload function (shared by SIGHUP and sidecar /reload) ---
 	reloadFn := func() error {
@@ -121,7 +127,7 @@ func main() {
 	drainFn := func() {
 		p.Drain()
 	}
-	done := InstallSignals(reloadSig, drainFn)
+	done, signaled := InstallSignals(reloadSig, drainFn)
 
 	slog.Info("gateway started", "agent", agentID, "upstream", upstream[0], "sidecar", *httpAddr)
 
@@ -131,10 +137,15 @@ func main() {
 	}
 
 	// Wait for signal-handler drain to complete (if a stop signal fired).
-	// If the proxy exited naturally (stdin EOF), this select is non-blocking.
-	select {
-	case <-done:
-	default:
+	// If the proxy exited naturally (stdin EOF), signaled is false and we skip
+	// the wait entirely — there is nothing to drain. The 7s timeout ensures a
+	// stuck drain goroutine can never hang main beyond drain's own 5s deadline.
+	if signaled.Load() {
+		select {
+		case <-done:
+		case <-time.After(7 * time.Second):
+			slog.Warn("shutdown: timed out waiting for drain goroutine to complete")
+		}
 	}
 
 	// --- graceful shutdown ---

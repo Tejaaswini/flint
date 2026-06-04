@@ -1,0 +1,8 @@
+bindings:
+  # Permissive binding for corpus replay. Binds corpus-agent (the agent_id
+  # injected into all corpus traces without an existing agent_id) to the
+  # corpus-allow-all role so that RBAC passes and behavioral rules can fire.
+  # ONLY used by flint-replay --corpus; never load in production.
+  - agent: corpus-agent
+    roles: [corpus-allow-all]
+    scopes: ["*"]

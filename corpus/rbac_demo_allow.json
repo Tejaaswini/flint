@@ -1,0 +1,78 @@
+{
+  "name": "rbac_demo_allow",
+  "description": "support-bot operating within its policy: reads a ticket, queries with SELECT, posts a reply. All calls allowed.",
+  "session_id": "sess_rbac_allow_001",
+  "events": [
+    {
+      "session_id": "sess_rbac_allow_001",
+      "agent_id": "support-bot",
+      "event_seq": 1,
+      "timestamp": "2024-01-15T10:00:00Z",
+      "direction": "request",
+      "method": "tools/call",
+      "tool_name": "support.read_ticket",
+      "scope": "support",
+      "request_id": "req_01",
+      "payload": { "ticket_id": "TICKET-9921" }
+    },
+    {
+      "session_id": "sess_rbac_allow_001",
+      "agent_id": "support-bot",
+      "event_seq": 2,
+      "timestamp": "2024-01-15T10:00:01Z",
+      "direction": "response",
+      "method": "tools/call",
+      "tool_name": "support.read_ticket",
+      "scope": "support",
+      "request_id": "req_01",
+      "payload": {
+        "ticket_id": "TICKET-9921",
+        "subject": "Can't access my account",
+        "body": "I keep getting a login error. My email is user@example.com.",
+        "author": "customer_882"
+      }
+    },
+    {
+      "session_id": "sess_rbac_allow_001",
+      "agent_id": "support-bot",
+      "event_seq": 3,
+      "timestamp": "2024-01-15T10:00:02Z",
+      "direction": "request",
+      "method": "tools/call",
+      "tool_name": "db.execute_sql",
+      "scope": "customer_data",
+      "request_id": "req_02",
+      "payload": { "query": "SELECT id, email, status FROM users WHERE email = 'user@example.com'" }
+    },
+    {
+      "session_id": "sess_rbac_allow_001",
+      "agent_id": "support-bot",
+      "event_seq": 4,
+      "timestamp": "2024-01-15T10:00:03Z",
+      "direction": "response",
+      "method": "tools/call",
+      "tool_name": "db.execute_sql",
+      "scope": "customer_data",
+      "request_id": "req_02",
+      "payload": {
+        "rows": [{ "id": 1042, "email": "user@example.com", "status": "locked" }],
+        "row_count": 1
+      }
+    },
+    {
+      "session_id": "sess_rbac_allow_001",
+      "agent_id": "support-bot",
+      "event_seq": 5,
+      "timestamp": "2024-01-15T10:00:04Z",
+      "direction": "request",
+      "method": "tools/call",
+      "tool_name": "support.post_reply",
+      "scope": "support",
+      "request_id": "req_03",
+      "payload": {
+        "ticket_id": "TICKET-9921",
+        "body": "Hi, I can see your account is locked. I've escalated this to the accounts team. You should hear back within 2 hours."
+      }
+    }
+  ]
+}

@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "trace_name": "benign_base64_blob",
+  "session_id": "sess_benign_b64_001",
+  "session": {
+    "attack_class": "benign",
+    "expected_disposition": "allow",
+    "expected_rules_silent": ["credential_exposure", "secret_relay"],
+    "notes": "Base64-encoded PNG image data. The data field is high-entropy base64 but does not match any v1 credential regex. FP control for both the regex set and the entropy heuristic. credential_exposure must NOT fire.",
+    "source": "synthetic"
+  },
+  "events": [
+    {
+      "event_seq": 2,
+      "labels": ["base64_noise"],
+      "contains_credentials": false,
+      "credential_kinds": [],
+      "expected_findings": [
+        {"rule_id": "credential_exposure", "must_fire": false}
+      ]
+    }
+  ]
+}

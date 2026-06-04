@@ -59,6 +59,17 @@ func (t *AuditTail) Bootstrap() {
 			slog.Debug("audit bootstrap: skip malformed line", "err", err)
 			continue
 		}
+		// Schema v2 normalisation for v1 rows loaded at bootstrap.
+		if row.SchemaVersion < 2 {
+			if row.EnforcedAction == "" {
+				row.EnforcedAction = "observed"
+			}
+			for i := range row.Findings {
+				if row.Findings[i].Action == "" {
+					row.Findings[i].Action = "warn"
+				}
+			}
+		}
 		rows = append(rows, row)
 	}
 
@@ -197,6 +208,19 @@ func (t *AuditTail) readNewLines() {
 				"support", api.AuditSchemaVersion,
 			)
 			continue
+		}
+
+		// Schema v2 normalisation: back-fill v2 fields missing from v1 rows so
+		// downstream code (UI, REST) never has to special-case old lines.
+		if row.SchemaVersion < 2 {
+			if row.EnforcedAction == "" {
+				row.EnforcedAction = "observed"
+			}
+			for i := range row.Findings {
+				if row.Findings[i].Action == "" {
+					row.Findings[i].Action = "warn"
+				}
+			}
 		}
 
 		t.state.AddDecision(row)

@@ -125,6 +125,11 @@ type DecisionRow struct {
 	PayloadExcerpt  string       `json:"payload_excerpt"`
 	Findings        []FindingRow `json:"findings,omitempty"`
 	SchemaVersion   int          `json:"schema_version"`
+	// EnforcedAction records what the gateway actually did for this event.
+	// Values: "allow" | "warn" | "pause" | "terminate" | "blocked" | "observed".
+	// Added in schema v2. Empty on v1 rows; normalised to "observed" by the
+	// control plane on read.
+	EnforcedAction string `json:"enforced_action,omitempty"`
 }
 
 type FindingRow struct {
@@ -132,12 +137,17 @@ type FindingRow struct {
 	Severity string  `json:"severity"`
 	Score    float64 `json:"score"`
 	Message  string  `json:"message"`
+	// Action is the intended enforcement response for this finding.
+	// Values: "warn" | "pause" | "terminate". Added in schema v2.
+	// Empty on v1 rows; normalised to "warn" by the control plane on read.
+	Action string `json:"action,omitempty"`
 }
 
 // AuditSchemaVersion is the current JSONL audit schema version.
 // Bump this on any change to DecisionRow fields. The control plane logs and
 // skips lines with a higher version.
-const AuditSchemaVersion = 1
+// v2 adds FindingRow.Action and DecisionRow.EnforcedAction.
+const AuditSchemaVersion = 2
 
 // ---------------------------------------------------------------------------
 // REST responses

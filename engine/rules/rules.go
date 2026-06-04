@@ -1,3 +1,12 @@
+// Package rules defines the behavioral rule set for tool-call sessions.
+//
+// Each rule function returns zero or more [session.Finding] values. Every
+// Finding carries an Action field (terminate | pause | warn) that describes
+// the intended enforcement response. Today this field is advisory only: it
+// informs the per-session Disposition rollup in engine/risk but the gateway
+// does NOT consult Disposition before forwarding upstream responses.
+// Per-finding enforcement is tracked as concerns.md C-022 and planned for
+// Phase 1 (devlogs/017-pivot-plan.md P1.9).
 package rules
 
 import (
@@ -23,7 +32,7 @@ func EvalSecretRelay(s *session.SessionState, evt *session.SessionEvent) []sessi
 		if src == nil || src.Direction != "response" {
 			continue
 		}
-		if src.PayloadClass != "restricted" && !hasTag(src.ToolTags, "restricted") {
+		if !isRestrictedSource(s, src) {
 			continue
 		}
 		out = append(out, session.Finding{
@@ -58,7 +67,7 @@ func EvalRestrictedWrite(s *session.SessionState, evt *session.SessionEvent) []s
 		if src == nil || src.Direction != "response" {
 			continue
 		}
-		if src.PayloadClass != "restricted" && !hasTag(src.ToolTags, "restricted") {
+		if !isRestrictedSource(s, src) {
 			continue
 		}
 		if alreadyCaughtBy(s, evt.EventSeq, edge.SrcEventSeq, "secret_relay") {
@@ -276,7 +285,7 @@ func EvalCrossScopeMovement(s *session.SessionState, evt *session.SessionEvent) 
 		if src == nil || src.Direction != "response" {
 			continue
 		}
-		if !hasTag(src.ToolTags, "restricted") {
+		if !isRestrictedSource(s, src) {
 			continue
 		}
 		if alreadyCaughtBy(s, evt.EventSeq, edge.SrcEventSeq, "secret_relay", "restricted_read_external_write") {
@@ -300,6 +309,30 @@ func EvalCrossScopeMovement(s *session.SessionState, evt *session.SessionEvent) 
 }
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
+
+// isRestrictedSource returns true if the source event should be treated as
+// restricted for purposes of relay and cross-scope rules. It checks three
+// signals in priority order:
+//  1. PayloadClass field on the event (set by tools.yaml or pre-labelled traces)
+//  2. "restricted" tag in ToolTags (set by tools.yaml classification)
+//  3. RestrictedEvents map on session state (set by EvalCredentialExfil on
+//     detection of a credential-shaped token in a response payload)
+//
+// The third check enables the detector→relay composition chain without
+// requiring a PayloadClass mutation that would be lost after the slice-append
+// copy in engine.ProcessEvent.
+func isRestrictedSource(s *session.SessionState, src *session.SessionEvent) bool {
+	if src.PayloadClass == "restricted" {
+		return true
+	}
+	if hasTag(src.ToolTags, "restricted") {
+		return true
+	}
+	if s.RestrictedEvents != nil && s.RestrictedEvents[src.EventSeq] {
+		return true
+	}
+	return false
+}
 
 func hasTag(tags []string, want ...string) bool {
 	for _, w := range want {

@@ -42,6 +42,8 @@ fi
 # ----- fresh audit log -------------------------------------------------------
 : > router-audit.jsonl
 echo "[demo-router] cleared router-audit.jsonl"
+: > flint-audit.jsonl
+echo "[demo-router] cleared flint-audit.jsonl"
 
 # ----- start control plane ---------------------------------------------------
 # (uses defaults for gateway policy paths; only the router fields matter for this demo)

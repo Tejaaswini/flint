@@ -1,7 +1,8 @@
 /**
  * API types — mirror of pkg/api/types.go.
- * Keep in sync manually. Last synced: 2026-05-20.
+ * Keep in sync manually. Last synced: 2026-06-03.
  * When the Go types change, update this file and bump the comment date.
+ * Schema v2: adds FindingRow.action and DecisionRow.enforced_action.
  */
 
 export interface Agent {
@@ -101,6 +102,8 @@ export interface DecisionRow {
   payload_excerpt: string;
   findings?: FindingRow[];
   schema_version: number;
+  /** What the gateway actually did for this event. Added in schema v2. Empty on v1 rows (treat as "observed"). */
+  enforced_action?: string;
 }
 
 export interface FindingRow {
@@ -108,6 +111,8 @@ export interface FindingRow {
   severity: string;
   score: number;
   message: string;
+  /** Intended enforcement response. Added in schema v2. Empty on v1 rows (treat as "warn"). */
+  action?: string;
 }
 
 export interface DecisionsResponse {
