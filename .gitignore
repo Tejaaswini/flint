@@ -19,5 +19,12 @@ ui/dist/
 /flint-replay
 /main
 
+# Local dev artifacts (not for upstream)
+devlogs/
+.claude/
+do_or_die.md
+new_plan.md
+plan.md
+
 # OS
 .DS_Store
