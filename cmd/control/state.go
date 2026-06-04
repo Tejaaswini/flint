@@ -162,8 +162,18 @@ func (s *State) AddDecision(row api.DecisionRow) {
 		for _, f := range row.Findings {
 			sess.FindingsCount++
 			sess.RiskScore += f.Score
+			switch {
+			case f.Action == "terminate":
+				sess.Disposition = "terminate"
+			case f.Action == "pause" && sess.Disposition != "terminate":
+				sess.Disposition = "pause"
+			case f.Action == "warn" && (sess.Disposition == "allow" || sess.Disposition == ""):
+				sess.Disposition = "warn"
+			}
 		}
-		if sess.DeniedCount > 0 || sess.RiskScore > 50 {
+		// Keep "review" as the catch-all for RBAC-only sessions
+		// (denies without any behavioral signal that escalated above allow).
+		if sess.DeniedCount > 0 && sess.Disposition == "allow" {
 			sess.Disposition = "review"
 		}
 	}
@@ -568,7 +578,10 @@ func (s *State) ComputeRouterStats(window string) api.RouterStats {
 		count++
 		stats.TotalCostUSD += row.TotalCostUSD
 		stats.BaselineCostUSD += row.BaselineCostUSD
-		stats.SavingsUSD += row.SavingsUSD
+		// Skip classifier-failed rows in savings total — routing was blind (see concerns.md C-002).
+		if !row.ClassifierFailed {
+			stats.SavingsUSD += row.SavingsUSD
+		}
 		totalClassifierMs += row.ClassifierLatencyMs
 		totalForwardMs += row.ForwardLatencyMs
 		totalMs += row.TotalLatencyMs
