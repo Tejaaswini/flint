@@ -18,8 +18,18 @@ const badgeVariants = cva(
         allow:
           "border-transparent bg-green-900/60 text-green-300 hover:bg-green-900/80",
         deny: "border-transparent bg-red-900/60 text-red-300 hover:bg-red-900/80",
+        blocked:
+          "border-transparent bg-red-900/60 text-red-300 hover:bg-red-900/80",
+        observed:
+          "border-transparent bg-amber-900/60 text-amber-300 hover:bg-amber-900/80",
         finding:
           "border-transparent bg-amber-900/60 text-amber-300 hover:bg-amber-900/80",
+        warn:
+          "border-transparent bg-yellow-900/60 text-yellow-300 hover:bg-yellow-900/80",
+        pause:
+          "border-transparent bg-orange-900/60 text-orange-300 hover:bg-orange-900/80",
+        terminate:
+          "border-transparent bg-red-900/60 text-red-300 hover:bg-red-900/80",
         read: "border-transparent bg-blue-900/60 text-blue-300",
         write: "border-transparent bg-amber-900/60 text-amber-300",
         admin: "border-transparent bg-red-900/60 text-red-300",
