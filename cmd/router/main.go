@@ -31,15 +31,15 @@ import (
 
 func main() {
 	// --- flags ---
-	addr             := flag.String("addr", "127.0.0.1:7478", "main HTTP server address (OpenAI-compat endpoint)")
-	httpAddr         := flag.String("http-addr", "127.0.0.1:7479", "sidecar HTTP server address (healthz + reload)")
-	policyPath       := flag.String("policy", "config/router-policy.yaml", "path to router-policy.yaml")
-	auditPath        := flag.String("audit", "router-audit.jsonl", "path to JSONL audit log (append mode)")
-	openrouterBase   := flag.String("openrouter-base", "https://openrouter.ai/api/v1", "base URL for OpenRouter API")
+	addr := flag.String("addr", "127.0.0.1:7478", "main HTTP server address (OpenAI-compat endpoint)")
+	httpAddr := flag.String("http-addr", "127.0.0.1:7479", "sidecar HTTP server address (healthz + reload)")
+	policyPath := flag.String("policy", "config/router-policy.yaml", "path to router-policy.yaml")
+	auditPath := flag.String("audit", "router-audit.jsonl", "path to JSONL audit log (append mode)")
+	openrouterBase := flag.String("openrouter-base", "https://openrouter.ai/api/v1", "base URL for OpenRouter API")
 	openrouterKeyEnv := flag.String("openrouter-key-env", "OPENROUTER_API_KEY", "env var name for the OpenRouter API key")
-	pricingPath      := flag.String("pricing", "config/pricing.json", "path to pricing fallback JSON")
-	httpReferer      := flag.String("http-referer", "https://github.com/flint-stack/flint", "HTTP-Referer header sent to OpenRouter")
-	xTitle           := flag.String("x-title", "Flint Router", "X-Title header sent to OpenRouter")
+	pricingPath := flag.String("pricing", "config/pricing.json", "path to pricing fallback JSON")
+	httpReferer := flag.String("http-referer", "https://github.com/flint-stack/flint", "HTTP-Referer header sent to OpenRouter")
+	xTitle := flag.String("x-title", "Flint Router", "X-Title header sent to OpenRouter")
 	flag.Parse()
 
 	// --- structured logger ---
@@ -172,4 +172,3 @@ func main() {
 
 	slog.Info("flint-router stopped")
 }
-

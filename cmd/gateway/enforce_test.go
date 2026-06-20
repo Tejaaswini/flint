@@ -17,13 +17,13 @@ func makeFindings(pairs ...string) []session.Finding {
 
 func TestDecideEnforcement(t *testing.T) {
 	cases := []struct {
-		name           string
-		disposition    string
-		findings       []session.Finding
-		mode           string
-		wantBlock      bool
-		wantRuleID     string
-		wantEnforced   string
+		name         string
+		disposition  string
+		findings     []session.Finding
+		mode         string
+		wantBlock    bool
+		wantRuleID   string
+		wantEnforced string
 	}{
 		// 1. Clean allow — no findings, mode=block
 		{
@@ -101,7 +101,7 @@ func TestDecideEnforcement(t *testing.T) {
 		},
 		// 8. Terminate with findings in warn/pause order — first terminate wins over later warn
 		{
-			name: "terminate_findings_first_terminate_cited",
+			name:        "terminate_findings_first_terminate_cited",
 			disposition: "terminate",
 			findings: makeFindings(
 				"credential_exposure", "warn",
@@ -145,7 +145,7 @@ func TestDecideEnforcement(t *testing.T) {
 		},
 		// 12. Pause with two equal-rank findings — first wins (tie-break)
 		{
-			name: "pause_two_pause_findings_first_wins",
+			name:        "pause_two_pause_findings_first_wins",
 			disposition: "pause",
 			findings: makeFindings(
 				"filesystem_traversal_sequence", "pause",

@@ -7,7 +7,7 @@ import (
 
 // RuleMetrics holds per-rule precision/recall/F1 numbers computed by Score.
 type RuleMetrics struct {
-	RuleID    string
+	RuleID     string
 	TP, FP, FN int
 	Precision  float64
 	Recall     float64
@@ -18,7 +18,7 @@ type RuleMetrics struct {
 type ScoreInput struct {
 	Trace   trace.TraceFile
 	Labels  trace.LabelsFile
-	Actual  []session.Finding     // all findings emitted by the engine for this session
+	Actual  []session.Finding // all findings emitted by the engine for this session
 	Session *session.SessionState
 }
 

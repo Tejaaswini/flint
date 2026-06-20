@@ -8,13 +8,13 @@ package api
 // ---------------------------------------------------------------------------
 
 type Agent struct {
-	ID                string  `json:"id"`
+	ID                string   `json:"id"`
 	Roles             []string `json:"roles"`
 	Scopes            []string `json:"scopes"`
-	DiscoverableTools int     `json:"discoverable_tools"`
-	InvokableTools    int     `json:"invokable_tools"`
-	RecentDeniedCount int     `json:"recent_denied_count"`
-	LastSeenAt        *string `json:"last_seen_at"`
+	DiscoverableTools int      `json:"discoverable_tools"`
+	InvokableTools    int      `json:"invokable_tools"`
+	RecentDeniedCount int      `json:"recent_denied_count"`
+	LastSeenAt        *string  `json:"last_seen_at"`
 }
 
 type AgentDetail struct {
@@ -26,8 +26,8 @@ type AgentDetail struct {
 type EffectivePermission struct {
 	ToolName       string   `json:"tool_name"`
 	Server         string   `json:"server"`
-	Verb           string   `json:"verb"`            // "discover" | "invoke" | "admin"
-	Lens           string   `json:"lens"`            // "read" | "write" | "admin"
+	Verb           string   `json:"verb"` // "discover" | "invoke" | "admin"
+	Lens           string   `json:"lens"` // "read" | "write" | "admin"
 	GrantedByRoles []string `json:"granted_by_roles"`
 	Constraints    []string `json:"constraints"`
 	DeniedByRole   string   `json:"denied_by_role"`
@@ -70,7 +70,7 @@ type Role struct {
 
 type Rule struct {
 	Name        string              `json:"name,omitempty"`
-	Effect      string              `json:"effect"`              // "allow" | "deny"
+	Effect      string              `json:"effect"` // "allow" | "deny"
 	Resources   []string            `json:"resources"`
 	Verbs       []string            `json:"verbs"`
 	Constraints map[string][]string `json:"constraints,omitempty"`
@@ -109,7 +109,7 @@ type DecisionRow struct {
 	SessionID       string       `json:"session_id"`
 	AgentID         string       `json:"agent_id"`
 	ToolName        string       `json:"tool_name"`
-	Direction       string       `json:"direction"`        // "request" | "response"
+	Direction       string       `json:"direction"` // "request" | "response"
 	Allowed         bool         `json:"allowed"`
 	Reason          string       `json:"reason"`
 	Constraint      string       `json:"constraint"`

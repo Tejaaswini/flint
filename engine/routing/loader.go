@@ -42,11 +42,11 @@ var validCapabilities = map[string]bool{
 
 // validIfKeys is the set of keys allowed inside an `if:` block.
 var validIfKeys = map[string]bool{
-	"task":                    true,
-	"complexity":              true,
-	"capabilities_include":    true,
-	"capabilities_all":        true, // alias, accepted but treated as capabilities_include
-	"messages_min_length":     true,
+	"task":                     true,
+	"complexity":               true,
+	"capabilities_include":     true,
+	"capabilities_all":         true, // alias, accepted but treated as capabilities_include
+	"messages_min_length":      true,
 	"messages_total_tokens_gt": true,
 }
 

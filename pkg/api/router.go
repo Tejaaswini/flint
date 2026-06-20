@@ -16,7 +16,7 @@ type ClassifierOutput struct {
 // The router writes one of these per line in router-audit.jsonl. Control plane
 // tails the file and serves the same struct on REST and over WebSocket.
 type RoutingDecision struct {
-	TS            string `json:"ts"`          // RFC3339Nano UTC
+	TS            string `json:"ts"` // RFC3339Nano UTC
 	RequestID     string `json:"request_id"`
 	SchemaVersion int    `json:"schema_version"`
 
@@ -78,11 +78,11 @@ type RouterClassifier struct {
 }
 
 type RouterRoute struct {
-	Name     string         `json:"name"`
+	Name     string          `json:"name"`
 	If       RouterMatchCond `json:"if,omitempty"`
-	Target   string         `json:"target"`
-	Fallback []string       `json:"fallback,omitempty"`
-	Reason   string         `json:"reason,omitempty"`
+	Target   string          `json:"target"`
+	Fallback []string        `json:"fallback,omitempty"`
+	Reason   string          `json:"reason,omitempty"`
 }
 
 type RouterMatchCond struct {

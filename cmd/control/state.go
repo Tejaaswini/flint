@@ -640,4 +640,3 @@ func (s *State) RouterUp() bool {
 	defer s.mu.RUnlock()
 	return time.Since(s.routerLastOK) < 30*time.Second
 }
-

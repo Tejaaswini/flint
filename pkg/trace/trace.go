@@ -11,9 +11,9 @@ import (
 )
 
 type TraceFile struct {
-	Name        string                `json:"name"`
-	Description string                `json:"description"`
-	SessionID   string                `json:"session_id"`
+	Name        string                 `json:"name"`
+	Description string                 `json:"description"`
+	SessionID   string                 `json:"session_id"`
 	Events      []session.SessionEvent `json:"events"`
 }
 

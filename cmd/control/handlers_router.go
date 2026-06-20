@@ -449,4 +449,3 @@ func handleRouterStream(state *State, routerBus *Bus) http.HandlerFunc {
 		}
 	}
 }
-

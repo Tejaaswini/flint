@@ -132,15 +132,15 @@ func main() {
 
 // corpusReport is the machine-readable JSON report written by --json-report.
 type corpusReport struct {
-	TotalSessions     int             `json:"total_sessions"`
-	SessionsMatched   int             `json:"sessions_matched"`
-	GlobalTP          int             `json:"global_tp"`
-	GlobalFP          int             `json:"global_fp"`
-	GlobalFN          int             `json:"global_fn"`
-	GlobalPrecision   float64         `json:"global_precision"`
-	GlobalRecall      float64         `json:"global_recall"`
-	PerRule           []RuleMetrics   `json:"per_rule,omitempty"`
-	SessionResults    []sessionResult `json:"session_results"`
+	TotalSessions   int             `json:"total_sessions"`
+	SessionsMatched int             `json:"sessions_matched"`
+	GlobalTP        int             `json:"global_tp"`
+	GlobalFP        int             `json:"global_fp"`
+	GlobalFN        int             `json:"global_fn"`
+	GlobalPrecision float64         `json:"global_precision"`
+	GlobalRecall    float64         `json:"global_recall"`
+	PerRule         []RuleMetrics   `json:"per_rule,omitempty"`
+	SessionResults  []sessionResult `json:"session_results"`
 }
 
 type sessionResult struct {

@@ -120,9 +120,9 @@ func (p *Pipeline) Process(ctx context.Context, req *ChatRequest, requestID stri
 	p.inFlight.Add(1)
 	defer p.inFlight.Done()
 
-	forwardReq := *req           // shallow copy
+	forwardReq := *req // shallow copy
 	forwardReq.Model = decision.TargetModel
-	forwardReq.Stream = false    // always off
+	forwardReq.Stream = false // always off
 
 	var (
 		resp    *ChatResponse

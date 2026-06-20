@@ -81,8 +81,8 @@ func TestWebSocket_ReceivesBacklog(t *testing.T) {
 		t.Fatalf("read hello: %v", err)
 	}
 	var helloEnvelope struct {
-		Type string        `json:"type"`
-		Data api.WSHello   `json:"data"`
+		Type string      `json:"type"`
+		Data api.WSHello `json:"data"`
 	}
 	if err := json.Unmarshal(msg, &helloEnvelope); err != nil {
 		t.Fatalf("unmarshal hello: %v", err)

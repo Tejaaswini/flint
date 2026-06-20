@@ -441,7 +441,7 @@ func TestCredentialExfil_EdgeCases(t *testing.T) {
 			Name: "multiple_tokens_one_response",
 			Payload: map[string]any{
 				"key1": fakeAWSKey,
-				"key2": fakeAWSKey,  // duplicate of same kind
+				"key2": fakeAWSKey, // duplicate of same kind
 				"key3": fakeStripeLive,
 			},
 			Want: struct {

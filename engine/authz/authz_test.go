@@ -758,10 +758,10 @@ bindings:
 // must deny every github.* tool for the agent.
 func TestEvaluate_DenyServerSelector(t *testing.T) {
 	registry := map[string]session.ToolMeta{
-		"github.search_code":    {},
-		"github.delete_branch":  {},
-		"github.create_pr":      {},
-		"slack.post_message":    {},
+		"github.search_code":   {},
+		"github.delete_branch": {},
+		"github.create_pr":     {},
+		"slack.post_message":   {},
 	}
 
 	const roles = `

@@ -116,10 +116,11 @@ func detectCredentialsWithEntropy(s string) []string {
 
 // EvalCredentialExfil scans response payloads for credential-shaped tokens.
 // On detection it:
-//  (a) emits a credential_exposure Finding (Action: warn, Severity: high,
-//      Score: 60, Confidence: 0.95 for regex hits / 0.70 for entropy-only)
-//  (b) flags the event in s.RestrictedEvents so a subsequent egress request
-//      can be caught by EvalSecretRelay as a relay event.
+//
+//	(a) emits a credential_exposure Finding (Action: warn, Severity: high,
+//	    Score: 60, Confidence: 0.95 for regex hits / 0.70 for entropy-only)
+//	(b) flags the event in s.RestrictedEvents so a subsequent egress request
+//	    can be caught by EvalSecretRelay as a relay event.
 //
 // Runs only on response events. Recognises credentials by regex match against
 // a precision-tuned set of vendor-specific patterns (v1CredentialPatterns);

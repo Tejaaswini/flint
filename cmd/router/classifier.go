@@ -175,10 +175,10 @@ func (c *Classifier) Classify(ctx context.Context, prompt string) (routing.Class
 // classifierFailed returns a sentinel ClassifierOutput for failure cases.
 func classifierFailed(reason string) routing.ClassifierOutput {
 	return routing.ClassifierOutput{
-		Task:       "other",
-		Complexity: "medium",
+		Task:         "other",
+		Complexity:   "medium",
 		Capabilities: []string{},
-		Reasoning:  fmt.Sprintf("<classifier_failed:%s>", reason),
+		Reasoning:    fmt.Sprintf("<classifier_failed:%s>", reason),
 	}
 }
 

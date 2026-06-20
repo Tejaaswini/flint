@@ -22,12 +22,12 @@ type PricingTable struct {
 // defaultPricing is the embedded pricing table shipped with the binary.
 // Accuracy is best-effort; the source of truth is OpenRouter's usage.cost.
 var defaultPricing = map[string]PricingEntry{
-	"openai/gpt-4o":                        {PromptPerM: 2.50, CompletionPerM: 10.00},
-	"openai/gpt-4o-mini":                   {PromptPerM: 0.15, CompletionPerM: 0.60},
-	"anthropic/claude-sonnet-4.6":          {PromptPerM: 3.00, CompletionPerM: 15.00},
-	"anthropic/claude-haiku-4.5":           {PromptPerM: 1.00, CompletionPerM: 5.00},
-	"google/gemini-flash-latest":           {PromptPerM: 1.50, CompletionPerM: 6.00},
-	"meta-llama/llama-3.2-3b-instruct":     {PromptPerM: 0.051, CompletionPerM: 0.051},
+	"openai/gpt-4o":                         {PromptPerM: 2.50, CompletionPerM: 10.00},
+	"openai/gpt-4o-mini":                    {PromptPerM: 0.15, CompletionPerM: 0.60},
+	"anthropic/claude-sonnet-4.6":           {PromptPerM: 3.00, CompletionPerM: 15.00},
+	"anthropic/claude-haiku-4.5":            {PromptPerM: 1.00, CompletionPerM: 5.00},
+	"google/gemini-flash-latest":            {PromptPerM: 1.50, CompletionPerM: 6.00},
+	"meta-llama/llama-3.2-3b-instruct":      {PromptPerM: 0.051, CompletionPerM: 0.051},
 	"meta-llama/llama-3.2-3b-instruct:free": {PromptPerM: 0.0, CompletionPerM: 0.0},
 }
 
