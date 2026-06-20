@@ -348,7 +348,7 @@ func (p *Proxy) fromUpstream(in io.Reader, out io.Writer) {
 
 		switch req.method {
 		case "tools/call":
-			p.handleToolsCallResponse(msg, idKey, req.toolName, req.start)
+			p.handleToolsCallResponse(&msg, idKey, req.toolName, req.start)
 			p.inFlight.Done()
 
 		case "tools/list":
@@ -367,9 +367,11 @@ func (p *Proxy) fromUpstream(in io.Reader, out io.Writer) {
 
 // handleToolsCallResponse feeds the response into the behavioral engine,
 // applies the enforcement hook, and writes a response-side audit row.
-// Returns true when the response was blocked (caller must NOT enc.Encode the
-// original message; the replacement has already been sent to the agent).
-func (p *Proxy) handleToolsCallResponse(msg message, idKey, toolName string, start time.Time) (blocked bool) {
+// msg is a pointer: when the response is blocked, msg.Result is overwritten in
+// place with the blocked-response shape so the caller's enc.Encode(msg) forwards
+// the replacement instead of the original upstream payload. Returns true when
+// the response was blocked.
+func (p *Proxy) handleToolsCallResponse(msg *message, idKey, toolName string, start time.Time) (blocked bool) {
 	if msg.Result == nil || msg.Error != nil {
 		return false
 	}
@@ -663,4 +665,3 @@ func denialReason(decisions []session.PolicyDecision, toolName string) string {
 	}
 	return "access denied"
 }
-
